@@ -1,0 +1,4 @@
+services:
+  usuarios:
+    environment:
+      ACCESS_TOKEN_TTL_SECONDS: ${NEXUSTIX_STAGING_TEST_ACCESS_TOKEN_TTL_SECONDS:-15}

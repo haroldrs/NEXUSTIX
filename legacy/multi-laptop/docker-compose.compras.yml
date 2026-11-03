@@ -1,0 +1,81 @@
+# ============================================================
+# LAPTOP 3 — Servicio de COMPRAS (2 replicas) + Balanceador + Frontend
+# ============================================================
+# IMPORTANTE: antes de levantar, edita el archivo ".env" en esta misma
+# carpeta y pon las IPs reales de las laptops 1 y 2 en la red (ver README
+# de esta carpeta para como obtener esas IPs con `ip a`).
+#
+#   cd Project
+#   docker compose -f multi-laptop/docker-compose.compras.yml --env-file multi-laptop/.env up --build
+# ============================================================
+services:
+  compras_db:
+    image: postgres:15-alpine
+    container_name: compras_db
+    environment:
+      POSTGRES_DB: compras_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LEGACY_COMPRAS_DB_PASSWORD:?Credencial externa obligatoria}
+    volumes:
+      - compras_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  compras1:
+    build: ../compras
+    container_name: compras1
+    environment:
+      DATABASE_URL: ${LEGACY_COMPRAS_DATABASE_URL:?URL externa obligatoria}
+      # Estas IPs vienen del archivo .env (IP real de laptop 1 y laptop 2)
+      USUARIOS_URL: http://${IP_LAPTOP_USUARIOS}:8001
+      EVENTOS_URL: http://${IP_LAPTOP_EVENTOS}:8002
+      INSTANCE_ID: "1"
+    ports:
+      - "8003:8003"
+    restart: on-failure:5
+    depends_on:
+      compras_db:
+        condition: service_healthy
+
+  compras2:
+    build: ../compras
+    container_name: compras2
+    environment:
+      DATABASE_URL: ${LEGACY_COMPRAS_DATABASE_URL:?URL externa obligatoria}
+      USUARIOS_URL: http://${IP_LAPTOP_USUARIOS}:8001
+      EVENTOS_URL: http://${IP_LAPTOP_EVENTOS}:8002
+      INSTANCE_ID: "2"
+    ports:
+      - "8004:8003"
+    restart: on-failure:5
+    depends_on:
+      compras_db:
+        condition: service_healthy
+
+  compras_lb:
+    image: nginx:alpine
+    container_name: compras_lb
+    volumes:
+      - ../compras_lb/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8005:80"
+    depends_on:
+      - compras1
+      - compras2
+    restart: unless-stopped
+
+  frontend:
+    image: nginx:alpine
+    container_name: frontend
+    volumes:
+      - ../frontend:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  compras_data:

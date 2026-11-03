@@ -1,0 +1,534 @@
+# Generado por scripts/generar_topologia.py; entorno NUEVO.
+name: nexustix-distributed-lab
+services:
+  usuarios_db:
+    image: nexustix-distributed/postgres:15
+    build: &id001
+      context: .
+      dockerfile: postgres/Dockerfile
+    environment:
+      POSTGRES_DB: usuarios_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/usuarios_db_password
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+      NEXUSTIX_INIT_REPLICATION: '1'
+      NEXUSTIX_REPLICA_SLOT: usuarios_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+    command:
+    - postgres
+    - -c
+    - tcp_keepalives_idle=10
+    - -c
+    - tcp_keepalives_interval=5
+    - -c
+    - tcp_keepalives_count=3
+    - -c
+    - idle_in_transaction_session_timeout=120s
+    - -c
+    - wal_level=replica
+    - -c
+    - max_wal_senders=10
+    - -c
+    - max_replication_slots=10
+    - -c
+    - max_slot_wal_keep_size=1024MB
+    - -c
+    - wal_log_hints=on
+    - -c
+    - checkpoint_timeout=5min
+    - -c
+    - archive_mode=on
+    - -c
+    - archive_timeout=60s
+    - -c
+    - archive_command=archive-wal.sh %p %f
+    secrets:
+    - usuarios_db_password
+    - replication_password
+    volumes:
+    - usuarios_data:/var/lib/postgresql/data
+    - usuarios_wal:/var/lib/postgresql/archive
+    healthcheck: &id002
+      test:
+      - CMD
+      - nexustix-healthcheck.sh
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+    - distributed
+    restart: unless-stopped
+    ports: []
+  usuarios:
+    image: nexustix-distributed/usuarios:auth
+    build:
+      context: .
+      dockerfile: usuarios/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/usuarios_database_url
+      DB_APPLICATION_NAME: usuarios
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      FRONTEND_ORIGINS: http://localhost:28080,http://127.0.0.1:28080
+      AUTH_COOKIE_SECURE: 'false'
+      ACCESS_TOKEN_TTL_SECONDS: '600'
+      REFRESH_TOKEN_TTL_DAYS: '1'
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+    secrets:
+    - usuarios_database_url
+    - jwt_private
+    - jwt_public
+    - admin_password
+    ports:
+    - 127.0.0.1:28081:8001
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8001/health
+    depends_on:
+      usuarios_db:
+        condition: service_healthy
+    networks:
+    - distributed
+    restart: unless-stopped
+  eventos_db:
+    image: nexustix-distributed/postgres:15
+    build: *id001
+    environment:
+      POSTGRES_DB: eventos_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/eventos_db_password
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+      NEXUSTIX_INIT_REPLICATION: '1'
+      NEXUSTIX_REPLICA_SLOT: eventos_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+    command:
+    - postgres
+    - -c
+    - tcp_keepalives_idle=10
+    - -c
+    - tcp_keepalives_interval=5
+    - -c
+    - tcp_keepalives_count=3
+    - -c
+    - idle_in_transaction_session_timeout=120s
+    - -c
+    - wal_level=replica
+    - -c
+    - max_wal_senders=10
+    - -c
+    - max_replication_slots=10
+    - -c
+    - max_slot_wal_keep_size=1024MB
+    - -c
+    - wal_log_hints=on
+    - -c
+    - checkpoint_timeout=5min
+    - -c
+    - archive_mode=on
+    - -c
+    - archive_timeout=60s
+    - -c
+    - archive_command=archive-wal.sh %p %f
+    secrets:
+    - eventos_db_password
+    - replication_password
+    volumes:
+    - eventos_data:/var/lib/postgresql/data
+    - eventos_wal:/var/lib/postgresql/archive
+    healthcheck: *id002
+    networks:
+    - distributed
+    restart: unless-stopped
+    ports: []
+  eventos:
+    image: nexustix-distributed/eventos:auth
+    build:
+      context: .
+      dockerfile: eventos/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/eventos_database_url
+      DB_APPLICATION_NAME: eventos
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+      FRONTEND_ORIGINS: http://localhost:28080,http://127.0.0.1:28080
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+    secrets:
+    - eventos_database_url
+    - jwt_public
+    - eventos_service_token
+    ports:
+    - 127.0.0.1:28082:8002
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8002/health
+    depends_on:
+      eventos_db:
+        condition: service_healthy
+    networks:
+    - distributed
+    restart: unless-stopped
+  compras_db:
+    image: nexustix-distributed/postgres:15
+    build: *id001
+    environment:
+      POSTGRES_DB: compras_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/compras_db_password
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+      NEXUSTIX_INIT_REPLICATION: '1'
+      NEXUSTIX_REPLICA_SLOT: compras_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+    command:
+    - postgres
+    - -c
+    - tcp_keepalives_idle=10
+    - -c
+    - tcp_keepalives_interval=5
+    - -c
+    - tcp_keepalives_count=3
+    - -c
+    - idle_in_transaction_session_timeout=120s
+    - -c
+    - wal_level=replica
+    - -c
+    - max_wal_senders=10
+    - -c
+    - max_replication_slots=10
+    - -c
+    - max_slot_wal_keep_size=1024MB
+    - -c
+    - wal_log_hints=on
+    - -c
+    - checkpoint_timeout=5min
+    - -c
+    - archive_mode=on
+    - -c
+    - archive_timeout=60s
+    - -c
+    - archive_command=archive-wal.sh %p %f
+    secrets:
+    - compras_db_password
+    - replication_password
+    volumes:
+    - compras_data:/var/lib/postgresql/data
+    - compras_wal:/var/lib/postgresql/archive
+    healthcheck: *id002
+    networks:
+    - distributed
+    restart: unless-stopped
+    ports: []
+  compras1:
+    image: nexustix-distributed/compras:auth
+    build: &id003
+      context: .
+      dockerfile: compras/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/compras_database_url
+      DB_APPLICATION_NAME: compras1
+      EVENTOS_URL: http://eventos:8002
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+      FRONTEND_ORIGINS: http://localhost:28080,http://127.0.0.1:28080
+      INSTANCE_ID: '1'
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+      NEXUSTIX_TEST_CRASH_HOOKS: '0'
+      NEXUSTIX_TEST_HOLD_SECONDS: '0'
+      PURCHASE_RECOVERY_INTERVAL_SECONDS: '10'
+      PURCHASE_RECOVERY_AUTO_RELEASE: '0'
+    secrets: &id004
+    - compras_database_url
+    - jwt_public
+    - eventos_service_token
+    ports:
+    - 127.0.0.1:28083:8003
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8003/health
+    depends_on:
+      compras_db:
+        condition: service_healthy
+    networks:
+    - distributed
+    restart: unless-stopped
+  compras2:
+    image: nexustix-distributed/compras:auth
+    build: *id003
+    environment:
+      DATABASE_URL_FILE: /run/secrets/compras_database_url
+      DB_APPLICATION_NAME: compras2
+      EVENTOS_URL: http://eventos:8002
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+      FRONTEND_ORIGINS: http://localhost:28080,http://127.0.0.1:28080
+      INSTANCE_ID: '2'
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+      NEXUSTIX_TEST_CRASH_HOOKS: '0'
+      NEXUSTIX_TEST_HOLD_SECONDS: '0'
+      PURCHASE_RECOVERY_INTERVAL_SECONDS: '10'
+      PURCHASE_RECOVERY_AUTO_RELEASE: '0'
+    secrets: *id004
+    ports:
+    - 127.0.0.1:28084:8003
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8003/health
+    depends_on:
+      compras_db:
+        condition: service_healthy
+    networks:
+    - distributed
+    restart: unless-stopped
+  compras_lb:
+    image: nexustix-distributed/compras-lb:auth
+    build:
+      context: .
+      dockerfile: compras_lb/Dockerfile
+    ports:
+    - 127.0.0.1:28085:80
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O /dev/null http://127.0.0.1/lb-health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+    - distributed
+    restart: unless-stopped
+    environment:
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+  frontend:
+    image: nexustix-distributed/frontend:auth
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    secrets:
+    - frontend_config
+    ports:
+    - 127.0.0.1:28080:80
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O /dev/null http://127.0.0.1/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+    - distributed
+    restart: unless-stopped
+    environment:
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+  usuarios_db_replica:
+    image: nexustix-distributed/postgres:15
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
+    environment:
+      POSTGRES_DB: usuarios_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/usuarios_db_password
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+      NEXUSTIX_REPLICA_SLOT: usuarios_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+      NEXUSTIX_PG_UPSTREAM_HOST: usuarios_db
+      NEXUSTIX_PG_SLOT: usuarios_db_replica
+    command:
+    - postgres
+    - -c
+    - wal_level=replica
+    - -c
+    - max_replication_slots=10
+    - -c
+    - max_wal_senders=10
+    - -c
+    - hot_standby=on
+    secrets:
+    - usuarios_db_password
+    - replication_password
+    volumes:
+    - usuarios_replica_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD
+      - nexustix-healthcheck.sh
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+    networks:
+    - distributed
+    restart: unless-stopped
+    ports: []
+    depends_on:
+      usuarios_db:
+        condition: service_healthy
+  eventos_db_replica:
+    image: nexustix-distributed/postgres:15
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
+    environment:
+      POSTGRES_DB: eventos_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/eventos_db_password
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+      NEXUSTIX_REPLICA_SLOT: eventos_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+      NEXUSTIX_PG_UPSTREAM_HOST: eventos_db
+      NEXUSTIX_PG_SLOT: eventos_db_replica
+    command:
+    - postgres
+    - -c
+    - wal_level=replica
+    - -c
+    - max_replication_slots=10
+    - -c
+    - max_wal_senders=10
+    - -c
+    - hot_standby=on
+    secrets:
+    - eventos_db_password
+    - replication_password
+    volumes:
+    - eventos_replica_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD
+      - nexustix-healthcheck.sh
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+    networks:
+    - distributed
+    restart: unless-stopped
+    ports: []
+    depends_on:
+      eventos_db:
+        condition: service_healthy
+  compras_db_replica:
+    image: nexustix-distributed/postgres:15
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
+    environment:
+      POSTGRES_DB: compras_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/compras_db_password
+      NEXUSTIX_DEPLOYMENT_ENV: distributed
+      NEXUSTIX_REPLICA_SLOT: compras_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+      NEXUSTIX_PG_UPSTREAM_HOST: compras_db
+      NEXUSTIX_PG_SLOT: compras_db_replica
+    command:
+    - postgres
+    - -c
+    - wal_level=replica
+    - -c
+    - max_replication_slots=10
+    - -c
+    - max_wal_senders=10
+    - -c
+    - hot_standby=on
+    secrets:
+    - compras_db_password
+    - replication_password
+    volumes:
+    - compras_replica_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD
+      - nexustix-healthcheck.sh
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+    networks:
+    - distributed
+    restart: unless-stopped
+    ports: []
+    depends_on:
+      compras_db:
+        condition: service_healthy
+volumes:
+  usuarios_wal:
+    name: nexustix-distributed-lab_usuarios_wal
+  eventos_wal:
+    name: nexustix-distributed-lab_eventos_wal
+  compras_replica_data:
+    name: nexustix-distributed-lab_compras_replica_data
+  eventos_replica_data:
+    name: nexustix-distributed-lab_eventos_replica_data
+  usuarios_data:
+    name: nexustix-distributed-lab_usuarios_data
+  usuarios_replica_data:
+    name: nexustix-distributed-lab_usuarios_replica_data
+  eventos_data:
+    name: nexustix-distributed-lab_eventos_data
+  compras_data:
+    name: nexustix-distributed-lab_compras_data
+  compras_wal:
+    name: nexustix-distributed-lab_compras_wal
+networks:
+  distributed:
+    name: nexustix-distributed-lab-network
+secrets:
+  admin_password:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/admin-password
+  compras_database_url:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/compras-database-url
+  compras_db_password:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/compras-db-password
+  eventos_database_url:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/eventos-database-url
+  eventos_db_password:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/eventos-db-password
+  eventos_service_token:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/eventos-service-token
+  frontend_config:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/frontend-config.js
+  jwt_private:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/jwt-private.pem
+  jwt_public:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/jwt-public.pem
+  replication_password:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/replication-password
+  usuarios_database_url:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/usuarios-database-url
+  usuarios_db_password:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/usuarios-db-password

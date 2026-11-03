@@ -1,0 +1,41 @@
+# ============================================================
+# LAPTOP 1 — Servicio de USUARIOS
+# ============================================================
+# Copiar esta carpeta "Project" completa a esta laptop y correr:
+#   cd Project
+#   docker compose -f multi-laptop/docker-compose.usuarios.yml up --build
+#
+# Este archivo NO necesita saber la IP de nadie mas: usuarios no
+# le pregunta nada a los otros servicios, solo responde.
+# ============================================================
+services:
+  usuarios_db:
+    image: postgres:15-alpine
+    container_name: usuarios_db
+    environment:
+      POSTGRES_DB: usuarios_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LEGACY_USUARIOS_DB_PASSWORD:?Credencial externa obligatoria}
+    volumes:
+      - usuarios_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  usuarios:
+    build: ../usuarios
+    container_name: usuarios
+    environment:
+      DATABASE_URL: ${LEGACY_USUARIOS_DATABASE_URL:?URL externa obligatoria}
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    depends_on:
+      usuarios_db:
+        condition: service_healthy
+
+volumes:
+  usuarios_data:

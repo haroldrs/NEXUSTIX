@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#10251f" />
+  <meta name="description" content="Descubre eventos y gestiona tus entradas con NEXUSTIX." />
+  <title>NEXUSTIX — Entradas para vivirlo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#comprar" aria-label="NEXUSTIX, inicio">
+      <span class="brand-mark">N</span><span>NEXUS<span class="brand-light">TIX</span></span>
+    </a>
+    <nav class="main-nav" aria-label="Navegación principal">
+      <button class="nav-link active" data-view="comprar">Descubrir</button>
+      <button class="nav-link" data-view="admin">Administración</button>
+      <button class="nav-link" data-view="observabilidad">Observabilidad</button>
+    </nav>
+    <div class="account-controls"><span id="auth-status" class="muted">Sesión no iniciada</span><button class="button button-outline" id="auth-open">Ingresar / registrarse</button><button class="button button-outline" id="auth-logout" hidden>Cerrar sesión</button></div>
+    <a class="header-cta" href="#eventos" data-scroll-events>Ver eventos <span aria-hidden="true">↗</span></a>
+  </header>
+
+  <main>
+    <section id="view-comprar" class="view active" aria-labelledby="hero-title">
+      <div class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-dot"></span> TU PRÓXIMO RECUERDO EMPIEZA AQUÍ</p>
+          <h1 id="hero-title">La emoción<br />está <em>en vivo.</em></h1>
+          <p class="hero-description">Encuentra tu próximo concierto, festival o experiencia. Elige tus entradas y prepárate para vivirlo.</p>
+          <a class="button button-dark" href="#eventos" data-scroll-events>Explorar eventos <span>↓</span></a>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="art-orbit orbit-one"></div><div class="art-orbit orbit-two"></div>
+          <div class="art-sun"></div><div class="art-ribbon ribbon-one"></div><div class="art-ribbon ribbon-two"></div>
+          <div class="art-caption"><span>LIVE<br />MOMENTS</span><span class="caption-star">✳</span></div>
+          <div class="art-ticket"><span>ENTRADA</span><strong>Tu noche.<br />Tu historia.</strong><small>NEXUSTIX · 2026</small></div>
+        </div>
+        <div class="hero-foot"><span>ENCUENTRA · ELIGE · DISFRUTA</span><span>SCROLL PARA DESCUBRIR ↓</span></div>
+      </div>
+
+      <section class="content-section events-section" id="eventos">
+        <div class="section-heading">
+          <div><p class="eyebrow">AGENDA NEXUSTIX</p><h2>Próximos eventos</h2><p class="section-note">Disponibilidad consultada al servicio de Eventos.</p></div>
+          <button class="button button-outline" id="refresh-events">Actualizar catálogo <span>↻</span></button>
+        </div>
+        <div id="catalog-status" class="notice" role="status" aria-live="polite">Consultando eventos…</div>
+        <div class="event-grid" id="event-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="content-section purchase-section" id="compra">
+        <div class="purchase-intro"><p class="eyebrow">RESERVA TU LUGAR</p><h2>Unos pasos<br />y estás <em>dentro.</em></h2><p>La compra se valida con los servicios disponibles y el stock se reserva en Eventos.</p><div class="flow-note"><span class="flow-number">01</span><span>Selecciona el evento y la cantidad</span><span class="flow-number">02</span><span>El backend valida y procesa la compra</span></div></div>
+        <form id="purchase-form" class="purchase-form">
+          <div class="form-heading"><div><p class="eyebrow">COMPRA DE ENTRADAS</p><h3>Completa tu solicitud</h3></div><span class="secure-mark">Solicitud vía API</span></div>
+          <p class="field-help">Inicia sesión para que la compra quede asociada a tu cuenta.</p>
+          <label for="purchase-event">Evento</label>
+          <select id="purchase-event" name="evento_id" required><option value="">Cargando catálogo…</option></select>
+          <label for="purchase-quantity">Cantidad</label>
+          <div class="quantity-wrap"><input id="purchase-quantity" name="cantidad" type="number" min="1" max="1000" value="1" required /><span>entradas</span></div>
+          <div id="order-options" hidden><label>Asientos (si el evento es numerado)</label><div id="seat-options"></div><button type="button" class="button button-outline" id="add-cart">Añadir al pedido grupal</button><p id="cart-summary"></p></div>
+          <button class="button button-accent" type="submit" id="purchase-submit">Continuar con la compra <span>→</span></button>
+          <div id="purchase-result" class="result-box" role="status" aria-live="polite"></div>
+          <p class="disclaimer">El resultado refleja la respuesta del backend. Un timeout puede dejar el resultado pendiente de verificación.</p>
+          <div class="history-note"><span class="history-icon">↗</span><div><strong>Mis compras</strong><div id="my-purchases" class="admin-list">Inicia sesión para consultar tu historial.</div></div></div>
+        </form>
+      </section>
+      <section class="content-section" id="checkout-panel" hidden>
+        <div class="section-heading"><h2>Mis pedidos y entradas</h2><button type="button" class="button button-outline" id="refresh-orders">Actualizar</button></div>
+        <p id="order-notice" class="notice" role="status"></p><div id="orders-list" class="admin-list"></div>
+        <div id="tickets-list" class="event-grid"></div><div id="notifications-list" class="admin-list"></div>
+      </section>
+      <footer class="site-footer"><span>NEXUSTIX</span><span>Encuentra tu próximo momento.</span><button data-view="admin">Área de administración</button></footer>
+    </section>
+
+    <section id="view-admin" class="view" aria-labelledby="admin-title">
+      <div class="workspace-hero"><p class="eyebrow">GESTIÓN DE PLATAFORMA</p><h1 id="admin-title">Administración</h1><p>Consulta el catálogo y las ventas disponibles en las APIs actuales.</p><div class="notice notice-warning">Acceso restringido por el backend a cuentas administradoras autenticadas.</div></div>
+      <div class="content-section admin-grid">
+        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">INVENTARIO</p><h2>Eventos y stock</h2></div><button class="button button-outline" id="admin-refresh-events">Actualizar</button></div><div id="admin-events" class="admin-list"><p class="muted">Cargando…</p></div><p class="field-help">Los organizadores pueden crear eventos con admisión general o asientos por zona. Las reservas conservan el precio de la selección.</p></article>
+        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">ACTIVIDAD COMERCIAL</p><h2>Ventas registradas</h2></div><button class="button button-outline" id="admin-refresh-sales">Actualizar</button></div><div id="admin-sales" class="table-scroll"><p class="muted">Cargando…</p></div><p class="field-help">Los compradores pueden cancelar o reembolsar sus pedidos sin entradas utilizadas desde Mis pedidos.</p></article>
+      </div>
+      <div class="content-section admin-grid">
+        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">CUENTAS</p><h2>Usuarios</h2></div><button class="button button-outline" id="admin-refresh-users">Actualizar</button></div><div id="admin-users" class="admin-list"><p class="muted">Cargando…</p></div></article>
+        <article class="workspace-card"><h2>Crear o editar evento</h2><form id="event-editor" class="purchase-form">
+<label>ID para editar (vacío crea un evento)<input name="evento_id" type="number" min="1"></label><label>Nombre<input name="nombre" required maxlength="200"></label><label>Lugar<input name="lugar" maxlength="200"></label>
+<label>Fecha local<input name="fecha" type="datetime-local" required></label><label>Capacidad<input name="capacidad" type="number" min="1" max="100000" required></label>
+<label>Precio S/<input name="precio" type="number" min="0" step="0.01" required></label>
+<label>Asientos opcionales: código,zona,precio S/ (uno por línea)<textarea name="asientos" rows="3"></textarea></label>
+<button class="button button-accent">Guardar evento</button><p id="event-result" role="status"></p></form></article>
+      </div>
+      <section class="content-section admin-grid"><article class="workspace-card"><h2>Validar acceso</h2>
+<form id="access-form" class="purchase-form"><label>Evento<input name="evento_id" type="number" min="1" required></label>
+<label>Código QR<input name="qr" autocomplete="off" required></label><button class="button button-accent">Validar entrada</button><p id="access-result" role="status"></p></form></article>
+<article class="workspace-card"><h2>Asignar organizador</h2><form id="role-form" class="purchase-form"><label>ID de usuario<input name="user_id" type="number" min="1" required></label><button class="button button-outline">Asignar rol organizador</button><p id="role-result" role="status"></p></form></article></section>
+      <footer class="site-footer"><span>NEXUSTIX · ADMINISTRACIÓN</span><button data-view="comprar">Volver al portal</button></footer>
+    </section>
+
+    <section id="view-observabilidad" class="view" aria-labelledby="observability-title">
+      <div class="workspace-hero"><p class="eyebrow">ESTADO OPERATIVO</p><h1 id="observability-title">Observabilidad técnica</h1><p>Estados y métricas consultados directamente a los servicios. Sin acciones de apagado, reset ni simulación.</p><div class="toolbar"><span class="refresh-label" id="last-refresh">Aún no actualizado</span><button class="button button-outline" id="refresh-observability">Actualizar ahora ↻</button></div></div>
+      <div class="content-section">
+        <div class="section-heading compact"><div><p class="eyebrow">SERVICIOS</p><h2>Disponibilidad reportada</h2></div><span class="poll-note">Sondeo cada 10 segundos</span></div>
+        <div id="service-grid" class="service-grid"><p class="muted">Consultando servicios…</p></div>
+      </div>
+      <div class="content-section observability-grid">
+        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">COMPRAS</p><h2>Métricas por instancia</h2></div></div><div id="replica-metrics" class="metrics-grid"><p class="muted">Sin datos todavía.</p></div></article>
+        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">INTEGRIDAD</p><h2>Auditoría de stock</h2></div><button class="button button-outline" id="refresh-audit">Consultar</button></div><div id="audit-result" class="audit-result"><p class="muted">La auditoría aún no se ha consultado.</p></div></article>
+      </div>
+      <div class="content-section observability-grid">
+        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">RECUPERACIÓN</p><h2>Reservas pendientes</h2></div></div><div id="pending-status" class="notice">No consultado. La auditoría obtiene las reservas pendientes si Eventos está disponible.</div></article>
+        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">BITÁCORA</p><h2>Journal de Compras</h2><span id="journal-count" class="pill">—</span></div><button class="button button-outline" id="refresh-journal">Actualizar</button></div><div id="journal-list" class="journal-list"><p class="muted">Sin datos todavía.</p></div></article>
+      </div>
+      <section class="content-section"><h2>Pedidos y PostgreSQL</h2><button class="button button-outline" id="refresh-distributed">Consultar estado</button><pre id="distributed-health">Sin consultar</pre></section>
+      <footer class="site-footer"><span>NEXUSTIX · OBSERVABILIDAD</span><button data-view="comprar">Volver al portal</button></footer>
+    </section>
+  </main>
+  <dialog id="auth-dialog" class="auth-dialog"><form method="dialog"><button class="dialog-close" aria-label="Cerrar">×</button></form><p class="eyebrow">CUENTA NEXUSTIX</p><h2 id="auth-title">Inicia sesión</h2><div class="auth-tabs"><button type="button" data-auth-mode="login" class="active">Ingresar</button><button type="button" data-auth-mode="register">Crear cuenta</button></div><form id="auth-form"><label for="auth-name" id="auth-name-label" hidden>Nombre</label><input id="auth-name" name="nombre" maxlength="160" autocomplete="name" hidden /><label for="auth-email">Correo electrónico</label><input id="auth-email" name="email" type="email" required autocomplete="email" /><label for="auth-password">Contraseña</label><input id="auth-password" name="password" type="password" required minlength="12" maxlength="256" autocomplete="current-password" /><button class="button button-accent" type="submit">Continuar</button><div id="auth-result" class="notice" role="status" aria-live="polite"></div></form></dialog>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script src="checkout.js"></script>
+</body>
+</html>

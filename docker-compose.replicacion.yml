@@ -1,0 +1,177 @@
+# Overlay de REPLICACIÓN PostgreSQL (primario + standby en caliente por base).
+#
+# Se combina con el Compose del entorno; úselo a través de los scripts, que
+# fijan proyecto, archivos y variables:
+#   python3 scripts/db_ha.py <demo|pruebas> enable     # prepara primarios y crea réplicas
+#   python3 scripts/db_ha.py <demo|pruebas> status
+#   python3 scripts/db_ha.py <demo|pruebas> promote compras_db
+#
+# Qué aporta:
+# - Replicación física en streaming (asíncrona por defecto; "db_ha.py sync"
+#   la vuelve síncrona) con slot de replicación por standby.
+# - Los servicios usan una URL con los dos nodos y
+#   target_session_attrs=read-write: libpq solo se conecta al nodo que acepta
+#   escrituras, de modo que tras una promoción controlada siguen al nuevo
+#   primario sin cambiar configuración.
+# Qué NO aporta:
+# - Failover automático: la promoción la decide un operador (db_ha.py promote),
+#   que primero aísla (fencing) al primario anterior. Con dos nodos no hay
+#   quórum para decidir solo sin riesgo de dos primarios (ver docs/BASES_DE_DATOS.md).
+# - Tolerancia a la caída del host: ambos nodos corren en la misma máquina
+#   salvo que se distribuyan (docs/ARQUITECTURA_DOS_PC.md).
+
+x-pg-replica-healthcheck: &pg-replica-healthcheck
+  test: ["CMD", "nexustix-healthcheck.sh"]
+  interval: 5s
+  timeout: 5s
+  retries: 12
+  start_period: 120s
+
+x-pg-build: &pg-build
+  context: .
+  dockerfile: postgres/Dockerfile
+
+services:
+  usuarios_db:
+    command: ["postgres", "-c", "cluster_name=usuarios_db", "-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10", "-c", "max_slot_wal_keep_size=1024MB", "-c", "hot_standby=on", "-c", "hot_standby_feedback=on", "-c", "wal_log_hints=on", "-c", "tcp_keepalives_idle=10", "-c", "tcp_keepalives_interval=5", "-c", "tcp_keepalives_count=3", "-c", "idle_in_transaction_session_timeout=120s"]
+    environment:
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+      NEXUSTIX_PG_SLOT: usuarios_db
+    secrets:
+      - replication_password
+
+  usuarios_db_replica:
+    image: ${NEXUSTIX_PG_IMAGE:-nexustix/postgres:15}
+    build: *pg-build
+    command: ["postgres", "-c", "cluster_name=usuarios_db_replica", "-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10", "-c", "max_slot_wal_keep_size=1024MB", "-c", "hot_standby=on", "-c", "hot_standby_feedback=on", "-c", "wal_log_hints=on", "-c", "tcp_keepalives_idle=10", "-c", "tcp_keepalives_interval=5", "-c", "tcp_keepalives_count=3", "-c", "idle_in_transaction_session_timeout=120s"]
+    environment:
+      POSTGRES_DB: usuarios_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/usuarios_db_password
+      NEXUSTIX_PG_UPSTREAM_HOST: usuarios_db
+      NEXUSTIX_PG_SLOT: usuarios_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+    secrets:
+      - usuarios_db_password
+      - replication_password
+    volumes:
+      - usuarios_replica_data:/var/lib/postgresql/data
+    healthcheck: *pg-replica-healthcheck
+    networks: ["${NEXUSTIX_HA_NETWORK:-red_conciertos}"]
+    restart: unless-stopped
+
+  eventos_db:
+    command: ["postgres", "-c", "cluster_name=eventos_db", "-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10", "-c", "max_slot_wal_keep_size=1024MB", "-c", "hot_standby=on", "-c", "hot_standby_feedback=on", "-c", "wal_log_hints=on", "-c", "tcp_keepalives_idle=10", "-c", "tcp_keepalives_interval=5", "-c", "tcp_keepalives_count=3", "-c", "idle_in_transaction_session_timeout=120s"]
+    environment:
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+      NEXUSTIX_PG_SLOT: eventos_db
+    secrets:
+      - replication_password
+
+  eventos_db_replica:
+    image: ${NEXUSTIX_PG_IMAGE:-nexustix/postgres:15}
+    build: *pg-build
+    command: ["postgres", "-c", "cluster_name=eventos_db_replica", "-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10", "-c", "max_slot_wal_keep_size=1024MB", "-c", "hot_standby=on", "-c", "hot_standby_feedback=on", "-c", "wal_log_hints=on", "-c", "tcp_keepalives_idle=10", "-c", "tcp_keepalives_interval=5", "-c", "tcp_keepalives_count=3", "-c", "idle_in_transaction_session_timeout=120s"]
+    environment:
+      POSTGRES_DB: eventos_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/eventos_db_password
+      NEXUSTIX_PG_UPSTREAM_HOST: eventos_db
+      NEXUSTIX_PG_SLOT: eventos_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+    secrets:
+      - eventos_db_password
+      - replication_password
+    volumes:
+      - eventos_replica_data:/var/lib/postgresql/data
+    healthcheck: *pg-replica-healthcheck
+    networks: ["${NEXUSTIX_HA_NETWORK:-red_conciertos}"]
+    restart: unless-stopped
+
+  compras_db:
+    command: ["postgres", "-c", "cluster_name=compras_db", "-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10", "-c", "max_slot_wal_keep_size=1024MB", "-c", "hot_standby=on", "-c", "hot_standby_feedback=on", "-c", "wal_log_hints=on", "-c", "tcp_keepalives_idle=10", "-c", "tcp_keepalives_interval=5", "-c", "tcp_keepalives_count=3", "-c", "idle_in_transaction_session_timeout=120s"]
+    environment:
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+      NEXUSTIX_PG_SLOT: compras_db
+    secrets:
+      - replication_password
+
+  compras_db_replica:
+    image: ${NEXUSTIX_PG_IMAGE:-nexustix/postgres:15}
+    build: *pg-build
+    command: ["postgres", "-c", "cluster_name=compras_db_replica", "-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10", "-c", "max_slot_wal_keep_size=1024MB", "-c", "hot_standby=on", "-c", "hot_standby_feedback=on", "-c", "wal_log_hints=on", "-c", "tcp_keepalives_idle=10", "-c", "tcp_keepalives_interval=5", "-c", "tcp_keepalives_count=3", "-c", "idle_in_transaction_session_timeout=120s"]
+    environment:
+      POSTGRES_DB: compras_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/compras_db_password
+      NEXUSTIX_PG_UPSTREAM_HOST: compras_db
+      NEXUSTIX_PG_SLOT: compras_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+    secrets:
+      - compras_db_password
+      - replication_password
+    volumes:
+      - compras_replica_data:/var/lib/postgresql/data
+    healthcheck: *pg-replica-healthcheck
+    networks: ["${NEXUSTIX_HA_NETWORK:-red_conciertos}"]
+    restart: unless-stopped
+
+  # Los servicios pasan a la URL con ambos nodos. "required: false" permite
+  # arrancarlos aunque el nodo original esté aislado tras una promoción.
+  usuarios:
+    environment:
+      DATABASE_URL_FILE: /run/secrets/usuarios_database_url_ha
+    secrets:
+      - usuarios_database_url_ha
+    depends_on:
+      usuarios_db:
+        condition: service_healthy
+        required: false
+
+  eventos:
+    environment:
+      DATABASE_URL_FILE: /run/secrets/eventos_database_url_ha
+    secrets:
+      - eventos_database_url_ha
+    depends_on:
+      eventos_db:
+        condition: service_healthy
+        required: false
+
+  compras1:
+    environment:
+      DATABASE_URL_FILE: /run/secrets/compras_database_url_ha
+    secrets:
+      - compras_database_url_ha
+    depends_on:
+      compras_db:
+        condition: service_healthy
+        required: false
+
+  compras2:
+    environment:
+      DATABASE_URL_FILE: /run/secrets/compras_database_url_ha
+    secrets:
+      - compras_database_url_ha
+    depends_on:
+      compras_db:
+        condition: service_healthy
+        required: false
+
+volumes:
+  usuarios_replica_data:
+    name: ${NEXUSTIX_HA_VOLUME_PREFIX:-nexustix}_usuarios_replica_data
+  eventos_replica_data:
+    name: ${NEXUSTIX_HA_VOLUME_PREFIX:-nexustix}_eventos_replica_data
+  compras_replica_data:
+    name: ${NEXUSTIX_HA_VOLUME_PREFIX:-nexustix}_compras_replica_data
+
+secrets:
+  replication_password:
+    file: ${NEXUSTIX_HA_SECRETS_DIR:?Use scripts/db_ha.py, que define la carpeta de secretos del entorno}/replication-password
+  usuarios_database_url_ha:
+    file: ${NEXUSTIX_HA_SECRETS_DIR:?Use scripts/db_ha.py}/usuarios-database-url-ha
+  eventos_database_url_ha:
+    file: ${NEXUSTIX_HA_SECRETS_DIR:?Use scripts/db_ha.py}/eventos-database-url-ha
+  compras_database_url_ha:
+    file: ${NEXUSTIX_HA_SECRETS_DIR:?Use scripts/db_ha.py}/compras-database-url-ha

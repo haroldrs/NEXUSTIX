@@ -1,0 +1,12 @@
+{
+  "primary_host": "192.168.56.12",
+  "standby_host": "192.168.56.13",
+  "primary_vm_uuid": "",
+  "operator": "",
+  "observed_at": "",
+  "hypervisor_evidence": "",
+  "primary_powered_off": false,
+  "primary_autostart_disabled": false,
+  "application_stopped": false,
+  "accept_async_data_loss": false
+}

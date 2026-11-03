@@ -1,0 +1,271 @@
+# LAN nueva; PostgreSQL centralizado; no desplegado.
+name: nexustix-lan-${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-pc2
+services:
+  usuarios:
+    restart: unless-stopped
+    labels: &id001
+      org.nexustix.installation: ${LAN_INSTALLATION_UUID:?Defina LAN_INSTALLATION_UUID}
+      org.nexustix.role: pc2
+    networks:
+    - lan
+    image: nexustix-lan/${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-usuarios:local
+    build:
+      context: ..
+      dockerfile: usuarios/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/usuarios_database_url
+      DB_APPLICATION_NAME: usuarios-pc2
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      FRONTEND_ORIGINS: http://${LAN_PC1_IP:?Defina LAN_PC1_IP}:${LAN_FRONTEND_PORT:?Defina
+        LAN_FRONTEND_PORT}
+      NEXUSTIX_DEPLOYMENT_ENV: lan
+      INSTANCE_ID: usuarios-pc2
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private
+      AUTH_COOKIE_SECURE: 'false'
+      ACCESS_TOKEN_TTL_SECONDS: '600'
+      REFRESH_TOKEN_TTL_DAYS: '1'
+    secrets:
+    - usuarios_database_url
+    - jwt_public
+    - jwt_private
+    - admin_password
+    ports:
+    - ${LAN_BIND_IP:?Defina LAN_BIND_IP}:${LAN_USUARIOS_PORT:?Defina LAN_USUARIOS_PORT}:8001
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8001/health
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 60s
+    depends_on:
+      usuarios_db:
+        condition: service_healthy
+  eventos:
+    restart: unless-stopped
+    labels: *id001
+    networks:
+    - lan
+    image: nexustix-lan/${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-eventos:local
+    build:
+      context: ..
+      dockerfile: eventos/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/eventos_database_url
+      DB_APPLICATION_NAME: eventos-pc2
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      FRONTEND_ORIGINS: http://${LAN_PC1_IP:?Defina LAN_PC1_IP}:${LAN_FRONTEND_PORT:?Defina
+        LAN_FRONTEND_PORT}
+      NEXUSTIX_DEPLOYMENT_ENV: lan
+      INSTANCE_ID: eventos-pc2
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+    secrets:
+    - eventos_database_url
+    - jwt_public
+    - eventos_service_token
+    ports:
+    - ${LAN_BIND_IP:?Defina LAN_BIND_IP}:${LAN_EVENTOS_PORT:?Defina LAN_EVENTOS_PORT}:8002
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8002/health
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 60s
+    depends_on:
+      eventos_db:
+        condition: service_healthy
+  compras:
+    restart: unless-stopped
+    labels: *id001
+    networks:
+    - lan
+    image: nexustix-lan/${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-compras:local
+    build:
+      context: ..
+      dockerfile: compras/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/compras_database_url
+      DB_APPLICATION_NAME: compras-pc2
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      FRONTEND_ORIGINS: http://${LAN_PC1_IP:?Defina LAN_PC1_IP}:${LAN_FRONTEND_PORT:?Defina
+        LAN_FRONTEND_PORT}
+      NEXUSTIX_DEPLOYMENT_ENV: lan
+      INSTANCE_ID: '2'
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+      EVENTOS_URL: http://${LAN_PC1_IP:?Defina LAN_PC1_IP}:${LAN_EVENTOS_PORT:?Defina
+        LAN_EVENTOS_PORT}
+      PURCHASE_RECOVERY_INTERVAL_SECONDS: '10'
+      PURCHASE_RECOVERY_AUTO_RELEASE: '0'
+      NEXUSTIX_TEST_CRASH_HOOKS: '0'
+    secrets:
+    - compras_database_url
+    - jwt_public
+    - eventos_service_token
+    ports:
+    - ${LAN_BIND_IP:?Defina LAN_BIND_IP}:${LAN_COMPRAS_PORT:?Defina LAN_COMPRAS_PORT}:8003
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8003/health
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 60s
+    depends_on:
+      compras_db:
+        condition: service_healthy
+  usuarios_db:
+    restart: unless-stopped
+    labels: *id001
+    networks:
+    - lan
+    image: nexustix-lan/${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-postgres:15
+    build:
+      context: ..
+      dockerfile: despliegue-pc/postgres/Dockerfile
+    environment:
+      POSTGRES_DB: usuarios_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/usuarios_admin_password
+      NEXUSTIX_APP_PASSWORD_FILE: /run/secrets/usuarios_db_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets:
+    - usuarios_admin_password
+    - usuarios_db_password
+    ports:
+    - ${LAN_BIND_IP:?Defina LAN_BIND_IP}:${LAN_PG_USUARIOS_PORT:?Defina LAN_PG_USUARIOS_PORT}:5432
+    volumes:
+    - usuarios_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD
+      - pg_isready
+      - -U
+      - postgres
+      - -d
+      - usuarios_db
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 30s
+  eventos_db:
+    restart: unless-stopped
+    labels: *id001
+    networks:
+    - lan
+    image: nexustix-lan/${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-postgres:15
+    build:
+      context: ..
+      dockerfile: despliegue-pc/postgres/Dockerfile
+    environment:
+      POSTGRES_DB: eventos_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/eventos_admin_password
+      NEXUSTIX_APP_PASSWORD_FILE: /run/secrets/eventos_db_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets:
+    - eventos_admin_password
+    - eventos_db_password
+    ports:
+    - ${LAN_BIND_IP:?Defina LAN_BIND_IP}:${LAN_PG_EVENTOS_PORT:?Defina LAN_PG_EVENTOS_PORT}:5432
+    volumes:
+    - eventos_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD
+      - pg_isready
+      - -U
+      - postgres
+      - -d
+      - eventos_db
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 30s
+  compras_db:
+    restart: unless-stopped
+    labels: *id001
+    networks:
+    - lan
+    image: nexustix-lan/${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-postgres:15
+    build:
+      context: ..
+      dockerfile: despliegue-pc/postgres/Dockerfile
+    environment:
+      POSTGRES_DB: compras_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/compras_admin_password
+      NEXUSTIX_APP_PASSWORD_FILE: /run/secrets/compras_db_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets:
+    - compras_admin_password
+    - compras_db_password
+    ports:
+    - ${LAN_BIND_IP:?Defina LAN_BIND_IP}:${LAN_PG_COMPRAS_PORT:?Defina LAN_PG_COMPRAS_PORT}:5432
+    volumes:
+    - compras_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD
+      - pg_isready
+      - -U
+      - postgres
+      - -d
+      - compras_db
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 30s
+networks:
+  lan:
+    name: nexustix-lan-${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-pc2_network
+    labels: *id001
+secrets:
+  usuarios_database_url:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/usuarios-database-url
+  jwt_public:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/jwt-public.pem
+  jwt_private:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/jwt-private.pem
+  admin_password:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/admin-password
+  eventos_database_url:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/eventos-database-url
+  eventos_service_token:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/eventos-service-token
+  compras_database_url:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/compras-database-url
+  usuarios_admin_password:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/usuarios-admin-password
+  usuarios_db_password:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/usuarios-db-password
+  eventos_admin_password:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/eventos-admin-password
+  eventos_db_password:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/eventos-db-password
+  compras_admin_password:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/compras-admin-password
+  compras_db_password:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/compras-db-password
+volumes:
+  usuarios_data:
+    name: nexustix-lan-${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-pc2_usuarios_data
+    labels: *id001
+  eventos_data:
+    name: nexustix-lan-${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-pc2_eventos_data
+    labels: *id001
+  compras_data:
+    name: nexustix-lan-${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-pc2_compras_data
+    labels: *id001

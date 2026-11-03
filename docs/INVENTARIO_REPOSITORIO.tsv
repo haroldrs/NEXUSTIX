@@ -1,0 +1,254 @@
+ruta	tipo	categoria	git	decision
+.agents	directorio	D	candidato	Conservar
+.aws	directorio	D	candidato	Conservar
+.codex	directorio	D	candidato	Conservar
+.dockerignore	archivo	D	candidato	Conservar
+.git	directorio	E	excluido	Excluir sin borrar
+.gitattributes	archivo	D	candidato	Conservar
+.gitignore	archivo	D	candidato	Conservar
+.pytest_cache	directorio	E	excluido	Excluir sin borrar
+.venv	directorio	E	excluido	Excluir sin borrar
+ESTRUCTURA DEL TRABAJO FINAL - SISOPE-2.pdf	archivo	F	excluido	Excluir sin borrar
+LEEME_PRIMERO.md	archivo	D	candidato	Conservar
+README.md	archivo	D	candidato	Conservar
+compras	directorio	A	candidato	Conservar
+compras/Dockerfile	archivo	A	candidato	Conservar
+compras/__pycache__	directorio	E	excluido	Excluir sin borrar
+compras/alembic.ini	archivo	A	candidato	Conservar
+compras/database.py	archivo	A/G (revisar contenido)	candidato	Conservar y revisar contenido
+compras/main.py	archivo	A	candidato	Conservar
+compras/migrations	directorio	A	candidato	Conservar
+compras/migrations/__pycache__	directorio	E	excluido	Excluir sin borrar
+compras/migrations/env.py	archivo	A	candidato	Conservar
+compras/migrations/script.py.mako	archivo	A	candidato	Conservar
+compras/migrations/versions	directorio	A	candidato	Conservar
+compras/migrations/versions/20261022_00_legacy_baseline.py	archivo	A	candidato	Conservar
+compras/migrations/versions/20261022_01_authenticated_purchases.py	archivo	A	candidato	Conservar
+compras/migrations/versions/20261023_02_purchase_idempotency.py	archivo	A	candidato	Conservar
+compras/migrations/versions/20261102_03_orders.py	archivo	A	candidato	Conservar
+compras/migrations/versions/__pycache__	directorio	E	excluido	Excluir sin borrar
+compras/models.py	archivo	A	candidato	Conservar
+compras/requirements.txt	archivo	A	candidato	Conservar
+compras_lb	directorio	A	candidato	Conservar
+compras_lb/Dockerfile	archivo	A	candidato	Conservar
+compras_lb/nginx.conf	archivo	A	candidato	Conservar
+config	directorio	B	candidato	Conservar
+config/README.md	archivo	B	candidato	Conservar
+config/demo.env.example	archivo	B	candidato	Conservar
+config/pruebas.env.example	archivo	B/G (revisar contenido)	candidato	Conservar y revisar contenido
+conftest.py	archivo	C	candidato	Conservar
+despliegue-vm	directorio	B	candidato	Conservar
+despliegue-vm/FALLOS.md	archivo	B	candidato	Conservar
+despliegue-vm/README.md	archivo	B	candidato	Conservar
+despliegue-vm/RECUPERACION.md	archivo	B	candidato	Conservar
+despliegue-vm/RED.md	archivo	B	candidato	Conservar
+despliegue-vm/RESULTADOS.md	archivo	B	candidato	Conservar
+despliegue-vm/backup.env.example	archivo	B	candidato	Conservar
+despliegue-vm/compose.app.yml	archivo	B	candidato	Conservar
+despliegue-vm/compose.primary.yml	archivo	B	candidato	Conservar
+despliegue-vm/compose.rejoin.yml	archivo	B	candidato	Conservar
+despliegue-vm/compose.standby.yml	archivo	B	candidato	Conservar
+despliegue-vm/config.env.example	archivo	B	candidato	Conservar
+despliegue-vm/fencing.example.json	archivo	B	candidato	Conservar
+despliegue-vm/nexustix-backup@.service	archivo	B	candidato	Conservar
+despliegue-vm/nexustix-backup@.timer	archivo	B	candidato	Conservar
+despliegue-vm/postgres	directorio	B	candidato	Conservar
+despliegue-vm/postgres/Dockerfile	archivo	B	candidato	Conservar
+despliegue-vm/postgres/entrypoint.sh	archivo	B/G (revisar contenido)	candidato	Conservar y revisar contenido
+despliegue-vm/postgres/init-access.sh	archivo	B	candidato	Conservar
+despliegue-vm/scripts	directorio	B	candidato	Conservar
+despliegue-vm/scripts/__pycache__	directorio	E	excluido	Excluir sin borrar
+despliegue-vm/scripts/aceptacion.py	archivo	B	candidato	Conservar
+despliegue-vm/scripts/configurar_red.py	archivo	B	candidato	Conservar
+despliegue-vm/scripts/empaquetar.py	archivo	B	candidato	Conservar
+despliegue-vm/scripts/firewall.py	archivo	B	candidato	Conservar
+despliegue-vm/scripts/instalar.py	archivo	B	candidato	Conservar
+despliegue-vm/scripts/preparar.py	archivo	B/G (revisar contenido)	candidato	Conservar y revisar contenido
+despliegue-vm/scripts/verificar.py	archivo	B	candidato	Conservar
+despliegue-vm/scripts/vm.py	archivo	B	candidato	Conservar
+docker-compose.distribuido.yml	archivo	B	candidato	Conservar
+docker-compose.replicacion.yml	archivo	B	candidato	Conservar
+docker-compose.staging.tests.yml	archivo	B	candidato	Conservar
+docker-compose.staging.yml	archivo	B	candidato	Conservar
+docker-compose.yml	archivo	B	candidato	Conservar
+docs	directorio	D	candidato	Conservar
+docs/ARQUITECTURA.md	archivo	D	candidato	Conservar
+docs/ARQUITECTURA_DISTRIBUIDA.md	archivo	D	candidato	Conservar
+docs/ARQUITECTURA_DOS_PC.md	archivo	D	candidato	Conservar
+docs/AUDITORIA_REPOSITORIO.md	archivo	D	candidato	Conservar
+docs/BASES_DE_DATOS.md	archivo	D	candidato	Conservar
+docs/EVOLUCION_DISTRIBUIDA.md	archivo	D/G (revisar contenido)	candidato	Conservar y revisar contenido
+docs/GUIA_DEMOSTRACION.md	archivo	D	candidato	Conservar
+docs/HALLAZGOS_PUBLICACION.md	archivo	D	candidato	Conservar
+docs/INFORME_FINAL.md	archivo	D	candidato	Conservar
+docs/INSTALACION_EQUIPO.md	archivo	D	candidato	Conservar
+docs/INSTALACION_FEDORA.md	archivo	D	candidato	Conservar
+docs/INVENTARIO_REPOSITORIO.tsv	archivo	D	candidato	Conservar
+docs/LIMITACIONES.md	archivo	D	candidato	Conservar
+docs/PLAN_DESPLIEGUE_3_PC.md	archivo	D	candidato	Conservar
+docs/PRUEBAS_RESILIENCIA.md	archivo	D/G (revisar contenido)	candidato	Conservar y revisar contenido
+docs/PRUEBAS_Y_EVIDENCIAS.md	archivo	D	candidato	Conservar
+docs/RESULTADOS_DISTRIBUIDO.md	archivo	D	candidato	Conservar
+docs/evidencias	directorio	D	candidato	Conservar
+docs/evidencias/20261026T011228Z_unit_windows.md	archivo	E	excluido	Excluir sin borrar
+docs/evidencias/20261026T015656Z_unit_postgres_windows.md	archivo	E	excluido	Excluir sin borrar
+docs/evidencias/20261103_distribuido.json	archivo	E	excluido	Excluir sin borrar
+docs/evidencias/20261103_portal_fedora.png	archivo	E	excluido	Excluir sin borrar
+docs/evidencias/20261103_preparacion_vm.json	archivo	E	excluido	Excluir sin borrar
+docs/evidencias/README.md	archivo	D	candidato	Conservar
+docs/historico	directorio	F	candidato	Conservar y revisar contenido
+docs/historico/ARQUITECTURA_DOS_PC_2026-10-24.md	archivo	F/G (revisar contenido)	candidato	Conservar y revisar contenido
+docs/historico/AUDITORIA_TOLERANCIA_FALLOS_NEXUSTIX.md	archivo	F/G (revisar contenido)	candidato	Conservar y revisar contenido
+docs/historico/AUTENTICACION_DESPLIEGUE.md	archivo	F	candidato	Conservar y revisar contenido
+docs/historico/DEMO_DISTRIBUIDA_NEXUSTIX.md	archivo	F/G (revisar contenido)	candidato	Conservar y revisar contenido
+docs/historico/GUIA_DEMOSTRACION_2026-10-25.md	archivo	F/G (revisar contenido)	candidato	Conservar y revisar contenido
+docs/historico/MATRIZ_TOLERANCIA_FALLOS.md	archivo	F	candidato	Conservar y revisar contenido
+docs/historico/PLAN_BACKUP_RESTAURACION.md	archivo	F	candidato	Conservar y revisar contenido
+docs/historico/PLAN_FINALIZACION_MANUAL.md	archivo	F/G (revisar contenido)	candidato	Conservar y revisar contenido
+docs/historico/PLAN_PRUEBAS_FALLOS.md	archivo	F/G (revisar contenido)	candidato	Conservar y revisar contenido
+docs/historico/PUNTO_1_VALIDACION_CONSISTENCIA.md	archivo	F	candidato	Conservar y revisar contenido
+docs/historico/PUNTO_3_TOLERANCIA_RECUPERACION.md	archivo	F	candidato	Conservar y revisar contenido
+docs/historico/README.md	archivo	F	candidato	Conservar y revisar contenido
+docs/historico/RESPALDO_RESTAURACION.md	archivo	F	candidato	Conservar y revisar contenido
+docs/historico/STAGING_AUTENTICACION_HTTP.md	archivo	F/G (revisar contenido)	candidato	Conservar y revisar contenido
+eventos	directorio	A	candidato	Conservar
+eventos/Dockerfile	archivo	A	candidato	Conservar
+eventos/__pycache__	directorio	E	excluido	Excluir sin borrar
+eventos/database.py	archivo	A/G (revisar contenido)	candidato	Conservar y revisar contenido
+eventos/main.py	archivo	A	candidato	Conservar
+eventos/models.py	archivo	A	candidato	Conservar
+eventos/requirements.txt	archivo	A	candidato	Conservar
+eventos/seed.py	archivo	A	candidato	Conservar
+frontend	directorio	A	candidato	Conservar
+frontend/Dockerfile	archivo	A	candidato	Conservar
+frontend/app.js	archivo	A/G (revisar contenido)	candidato	Conservar y revisar contenido
+frontend/checkout.js	archivo	A	candidato	Conservar
+frontend/config.js	archivo	A	candidato	Conservar
+frontend/index.html	archivo	A	candidato	Conservar
+frontend/nginx.conf	archivo	A	candidato	Conservar
+frontend/style.css	archivo	A	candidato	Conservar
+legacy	directorio	F	candidato	Conservar y revisar contenido
+legacy/README.md	archivo	F	candidato	Conservar y revisar contenido
+legacy/demo_sistemas_distribuidos.py	archivo	F	candidato	Conservar y revisar contenido
+legacy/diagnostico_compras2_20261025T212841Z.log	archivo	E	excluido	Excluir sin borrar
+legacy/multi-laptop	directorio	F	candidato	Conservar y revisar contenido
+legacy/multi-laptop/.env.example	archivo	B	candidato	Conservar
+legacy/multi-laptop/README.md	archivo	F	candidato	Conservar y revisar contenido
+legacy/multi-laptop/docker-compose.compras.yml	archivo	F/G (revisar contenido)	candidato	Conservar y revisar contenido
+legacy/multi-laptop/docker-compose.eventos.yml	archivo	F/G (revisar contenido)	candidato	Conservar y revisar contenido
+legacy/multi-laptop/docker-compose.usuarios.yml	archivo	F/G (revisar contenido)	candidato	Conservar y revisar contenido
+legacy/prueba_punto1_consistencia.py	archivo	F	candidato	Conservar y revisar contenido
+legacy/prueba_punto3_tolerancia.py	archivo	F	candidato	Conservar y revisar contenido
+legacy/prueba_punto5_observabilidad.py	archivo	F	candidato	Conservar y revisar contenido
+legacy/reset_entorno_pruebas.sh	archivo	F	candidato	Conservar y revisar contenido
+locustfile.py	archivo	D	candidato	Conservar
+postgres	directorio	B	candidato	Conservar
+postgres/Dockerfile	archivo	B	candidato	Conservar
+postgres/archive-wal.sh	archivo	B	candidato	Conservar
+postgres/init-replication.sh	archivo	B/G (revisar contenido)	candidato	Conservar y revisar contenido
+postgres/nexustix-entrypoint.sh	archivo	B/G (revisar contenido)	candidato	Conservar y revisar contenido
+postgres/nexustix-healthcheck.sh	archivo	B	candidato	Conservar
+pytest.ini	archivo	C	candidato	Conservar
+requirements-load.txt	archivo	D	candidato	Conservar
+requirements-test.txt	archivo	C	candidato	Conservar
+requirements.txt	archivo	A	candidato	Conservar
+resultados	directorio	E	excluido	Excluir sin borrar
+scripts	directorio	D	candidato	Conservar
+scripts/__pycache__	directorio	E	excluido	Excluir sin borrar
+scripts/backup_main_databases.py	archivo	D	candidato	Conservar
+scripts/backup_programado.py	archivo	D	candidato	Conservar
+scripts/conservar_secretos_distribuidos.py	archivo	D	candidato	Conservar
+scripts/db_ha.py	archivo	D	candidato	Conservar
+scripts/destroy_staging_secrets.py	archivo	D	candidato	Conservar
+scripts/diagnostico_compras2_crash.sh	archivo	D/G (revisar contenido)	candidato	Conservar y revisar contenido
+scripts/ejecutar_pruebas.py	archivo	D/G (revisar contenido)	candidato	Conservar y revisar contenido
+scripts/entornos.py	archivo	D/G (revisar contenido)	candidato	Conservar y revisar contenido
+scripts/generar_secretos.py	archivo	D/G (revisar contenido)	candidato	Conservar y revisar contenido
+scripts/generar_topologia.py	archivo	D/G (revisar contenido)	candidato	Conservar y revisar contenido
+scripts/locust_safety.py	archivo	D	candidato	Conservar
+scripts/nx.py	archivo	D	candidato	Conservar
+scripts/pg_docker.py	archivo	D	candidato	Conservar
+scripts/physical_backup.py	archivo	D	candidato	Conservar
+scripts/preparar_carga.py	archivo	D	candidato	Conservar
+scripts/preparar_distribuido.py	archivo	D	candidato	Conservar
+scripts/prepare_staging.py	archivo	D	candidato	Conservar
+scripts/probar_local.py	archivo	D/G (revisar contenido)	candidato	Conservar y revisar contenido
+scripts/revisar_publicacion.py	archivo	D	candidato	Conservar
+scripts/verificar_distribuido.py	archivo	D	candidato	Conservar
+scripts/verificar_flujo.py	archivo	D	candidato	Conservar
+shared	directorio	A	candidato	Conservar
+shared/__init__.py	archivo	A	candidato	Conservar
+shared/__pycache__	directorio	E	excluido	Excluir sin borrar
+shared/auth_tokens.py	archivo	A	candidato	Conservar
+shared/catalog.py	archivo	A	candidato	Conservar
+shared/checkout.py	archivo	A	candidato	Conservar
+shared/db_engine.py	archivo	A	candidato	Conservar
+shared/diagnostics.py	archivo	A	candidato	Conservar
+shared/healthcheck.py	archivo	A	candidato	Conservar
+shared/run_migrations.py	archivo	A	candidato	Conservar
+shared/telemetry.py	archivo	A	candidato	Conservar
+simular_trafico.py	archivo	D	candidato	Conservar
+tests	directorio	C	candidato	Conservar
+tests/__pycache__	directorio	E	excluido	Excluir sin borrar
+tests/postgres	directorio	C	candidato	Conservar
+tests/postgres/__pycache__	directorio	E	excluido	Excluir sin borrar
+tests/postgres/conftest.py	archivo	C/G (revisar contenido)	candidato	Conservar y revisar contenido
+tests/postgres/pg_helpers.py	archivo	C	candidato	Conservar
+tests/postgres/test_checkout.py	archivo	C	candidato	Conservar
+tests/postgres/test_pg_integracion.py	archivo	C	candidato	Conservar
+tests/postgres/test_pg_replicacion.py	archivo	C	candidato	Conservar
+tests/postgres/test_pg_respaldo.py	archivo	C	candidato	Conservar
+tests/postgres/test_pitr.py	archivo	C	candidato	Conservar
+tests/resiliencia	directorio	C	candidato	Conservar
+tests/resiliencia/conftest.py	archivo	C	candidato	Conservar
+tests/resiliencia/nx_pruebas.py	archivo	C	candidato	Conservar
+tests/resiliencia/test_01_entorno.py	archivo	C	candidato	Conservar
+tests/resiliencia/test_02_compras.py	archivo	C	candidato	Conservar
+tests/resiliencia/test_03_failover_replicas.py	archivo	C	candidato	Conservar
+tests/resiliencia/test_04_caidas_en_vuelo.py	archivo	C	candidato	Conservar
+tests/resiliencia/test_05_dependencias.py	archivo	C/G (revisar contenido)	candidato	Conservar y revisar contenido
+tests/resiliencia/test_06_recuperacion.py	archivo	C	candidato	Conservar
+tests/resiliencia/test_07_postgres.py	archivo	C/G (revisar contenido)	candidato	Conservar y revisar contenido
+tests/resiliencia/test_08_respaldo.py	archivo	C	candidato	Conservar
+tests/resiliencia/test_09_replicacion.py	archivo	C	candidato	Conservar
+tests/resiliencia/test_99_final.py	archivo	C	candidato	Conservar
+tests/staging	directorio	C	candidato	Conservar
+tests/staging/frontend_auth_state.test.js	archivo	C/G (revisar contenido)	candidato	Conservar y revisar contenido
+tests/staging/frontend_http_renewal.js	archivo	C	candidato	Conservar
+tests/staging/purchase_recovery_pg_runner.py	archivo	C	candidato	Conservar
+tests/staging/test_auth_http.py	archivo	C/G (revisar contenido)	candidato	Conservar y revisar contenido
+tests/staging/test_events_unavailability_http.py	archivo	C	candidato	Conservar
+tests/staging/test_purchase_abrupt_crash_http.py	archivo	C	candidato	Conservar
+tests/staging/test_purchase_failover_http.py	archivo	C	candidato	Conservar
+tests/staging/test_recovery_postgres_http.py	archivo	C	candidato	Conservar
+tests/test_authentication.py	archivo	C/G (revisar contenido)	candidato	Conservar y revisar contenido
+tests/test_backup_procedure.py	archivo	C	candidato	Conservar
+tests/test_backup_restore_isolated.py	archivo	C	candidato	Conservar
+tests/test_configuracion.py	archivo	C/G (revisar contenido)	candidato	Conservar y revisar contenido
+tests/test_distribuido_config.py	archivo	C	candidato	Conservar
+tests/test_eventos_inventario.py	archivo	C	candidato	Conservar
+tests/test_locust_safety.py	archivo	C/G (revisar contenido)	candidato	Conservar y revisar contenido
+tests/test_migraciones.py	archivo	C	candidato	Conservar
+tests/test_operaciones.py	archivo	C	candidato	Conservar
+tests/test_recuperacion_automatica.py	archivo	C	candidato	Conservar
+tests/vm	directorio	C	candidato	Conservar
+tests/vm/__pycache__	directorio	E	excluido	Excluir sin borrar
+tests/vm/test_preparacion.py	archivo	C	candidato	Conservar
+usuarios	directorio	A	candidato	Conservar
+usuarios/Dockerfile	archivo	A	candidato	Conservar
+usuarios/__pycache__	directorio	E	excluido	Excluir sin borrar
+usuarios/alembic.ini	archivo	A	candidato	Conservar
+usuarios/bootstrap_admin.py	archivo	A	candidato	Conservar
+usuarios/database.py	archivo	A/G (revisar contenido)	candidato	Conservar y revisar contenido
+usuarios/main.py	archivo	A/G (revisar contenido)	candidato	Conservar y revisar contenido
+usuarios/migrations	directorio	A	candidato	Conservar
+usuarios/migrations/__pycache__	directorio	E	excluido	Excluir sin borrar
+usuarios/migrations/env.py	archivo	A	candidato	Conservar
+usuarios/migrations/script.py.mako	archivo	A	candidato	Conservar
+usuarios/migrations/versions	directorio	A	candidato	Conservar
+usuarios/migrations/versions/20261022_00_legacy_baseline.py	archivo	A	candidato	Conservar
+usuarios/migrations/versions/20261022_01_authentication.py	archivo	A	candidato	Conservar
+usuarios/migrations/versions/20261102_02_organizers.py	archivo	A	candidato	Conservar
+usuarios/migrations/versions/__pycache__	directorio	E	excluido	Excluir sin borrar
+usuarios/models.py	archivo	A	candidato	Conservar
+usuarios/requirements.txt	archivo	A	candidato	Conservar

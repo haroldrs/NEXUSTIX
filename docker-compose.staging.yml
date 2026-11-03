@@ -1,0 +1,261 @@
+# NEXUSTIX — entorno de PRUEBAS aislado (staging), proyecto "nexustix-auth-staging".
+#
+# Aislamiento respecto al entorno de demostración:
+#   proyecto Compose propio, red nexustix-auth-staging-network, volúmenes
+#   nexustix_auth_staging_*, imágenes nexustix-staging/*, secretos propios
+#   (NEXUSTIX_STAGING_SECRETS_DIR) y puertos solo en loopback 18080-18085.
+#
+# Preparación:  python3 scripts/generar_secretos.py --entorno pruebas
+# Uso:          python3 scripts/nx.py pruebas up | status | stop
+name: nexustix-auth-staging
+
+x-api-healthcheck: &api-healthcheck
+  interval: 10s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
+
+x-pg-command: &pg-command
+  # Detección rápida de clientes muertos (una réplica de Compras eliminada sin
+  # cerrar su conexión no retiene bloqueos de fila durante horas) y límite a
+  # transacciones abandonadas. Las APIs usan keepalives equivalentes (shared/db_engine.py).
+  ["postgres", "-c", "tcp_keepalives_idle=10", "-c", "tcp_keepalives_interval=5", "-c", "tcp_keepalives_count=3", "-c", "idle_in_transaction_session_timeout=120s"]
+
+x-db-healthcheck: &db-healthcheck
+  test: ["CMD", "nexustix-healthcheck.sh"]
+  interval: 5s
+  timeout: 5s
+  retries: 12
+  start_period: 20s
+
+services:
+  usuarios_db:
+    image: nexustix-staging/postgres:15
+    build: &postgres-build
+      context: .
+      dockerfile: postgres/Dockerfile
+    environment:
+      POSTGRES_DB: usuarios_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/usuarios_db_password
+    command: *pg-command
+    secrets:
+      - usuarios_db_password
+    volumes:
+      - usuarios_data:/var/lib/postgresql/data
+    healthcheck: *db-healthcheck
+    networks: [staging]
+    restart: unless-stopped
+
+  usuarios:
+    image: nexustix-staging/usuarios:auth
+    build:
+      context: .
+      dockerfile: usuarios/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/usuarios_database_url
+      DB_APPLICATION_NAME: usuarios
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      FRONTEND_ORIGINS: http://localhost:18080
+      AUTH_COOKIE_SECURE: "false"
+      ACCESS_TOKEN_TTL_SECONDS: ${NEXUSTIX_STAGING_ACCESS_TOKEN_TTL_SECONDS:-600}
+      REFRESH_TOKEN_TTL_DAYS: "1"
+    secrets:
+      - usuarios_database_url
+      - jwt_private
+      - jwt_public
+      - admin_password
+    ports:
+      - "127.0.0.1:18081:8001"
+    healthcheck:
+      <<: *api-healthcheck
+      test: ["CMD", "python", "-m", "shared.healthcheck", "http://127.0.0.1:8001/health"]
+    depends_on:
+      usuarios_db:
+        condition: service_healthy
+    networks: [staging]
+    restart: unless-stopped
+
+  eventos_db:
+    image: nexustix-staging/postgres:15
+    build: *postgres-build
+    environment:
+      POSTGRES_DB: eventos_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/eventos_db_password
+    command: *pg-command
+    secrets:
+      - eventos_db_password
+    volumes:
+      - eventos_data:/var/lib/postgresql/data
+    healthcheck: *db-healthcheck
+    networks: [staging]
+    restart: unless-stopped
+
+  eventos:
+    image: nexustix-staging/eventos:auth
+    build:
+      context: .
+      dockerfile: eventos/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/eventos_database_url
+      DB_APPLICATION_NAME: eventos
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+      FRONTEND_ORIGINS: http://localhost:18080
+    secrets:
+      - eventos_database_url
+      - jwt_public
+      - eventos_service_token
+    ports:
+      - "127.0.0.1:18082:8002"
+    healthcheck:
+      <<: *api-healthcheck
+      test: ["CMD", "python", "-m", "shared.healthcheck", "http://127.0.0.1:8002/health"]
+    depends_on:
+      eventos_db:
+        condition: service_healthy
+    networks: [staging]
+    restart: unless-stopped
+
+  compras_db:
+    image: nexustix-staging/postgres:15
+    build: *postgres-build
+    environment:
+      POSTGRES_DB: compras_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/compras_db_password
+    command: *pg-command
+    secrets:
+      - compras_db_password
+    volumes:
+      - compras_data:/var/lib/postgresql/data
+    healthcheck: *db-healthcheck
+    networks: [staging]
+    restart: unless-stopped
+
+  compras1:
+    image: nexustix-staging/compras:auth
+    build: &compras-build
+      context: .
+      dockerfile: compras/Dockerfile
+    environment: &compras-env
+      DATABASE_URL_FILE: /run/secrets/compras_database_url
+      DB_APPLICATION_NAME: compras1
+      EVENTOS_URL: http://eventos:8002
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+      FRONTEND_ORIGINS: http://localhost:18080
+      INSTANCE_ID: "1"
+      NEXUSTIX_DEPLOYMENT_ENV: staging
+      NEXUSTIX_TEST_CRASH_HOOKS: ${NEXUSTIX_TEST_CRASH_HOOKS:-0}
+      NEXUSTIX_TEST_HOLD_SECONDS: ${NEXUSTIX_TEST_HOLD_SECONDS:-30}
+      # 0 = recuperación solo manual (las suites de recovery crean estados
+      # pendientes a propósito). Las pruebas de recuperación automática
+      # levantan el entorno con NEXUSTIX_STAGING_RECOVERY_INTERVAL_SECONDS=10.
+      PURCHASE_RECOVERY_INTERVAL_SECONDS: ${NEXUSTIX_STAGING_RECOVERY_INTERVAL_SECONDS:-0}
+      PURCHASE_RECOVERY_AUTO_RELEASE: "0"
+    secrets: &compras-secrets
+      - compras_database_url
+      - jwt_public
+      - eventos_service_token
+    ports:
+      - "127.0.0.1:18083:8003"
+    healthcheck:
+      <<: *api-healthcheck
+      test: ["CMD", "python", "-m", "shared.healthcheck", "http://127.0.0.1:8003/health"]
+    depends_on:
+      compras_db:
+        condition: service_healthy
+    networks: [staging]
+    restart: ${NEXUSTIX_STAGING_COMPRAS_RESTART_POLICY:-unless-stopped}
+
+  compras2:
+    image: nexustix-staging/compras:auth
+    build: *compras-build
+    environment:
+      <<: *compras-env
+      DB_APPLICATION_NAME: compras2
+      INSTANCE_ID: "2"
+    secrets: *compras-secrets
+    ports:
+      - "127.0.0.1:18084:8003"
+    healthcheck:
+      <<: *api-healthcheck
+      test: ["CMD", "python", "-m", "shared.healthcheck", "http://127.0.0.1:8003/health"]
+    depends_on:
+      compras_db:
+        condition: service_healthy
+    networks: [staging]
+    restart: ${NEXUSTIX_STAGING_COMPRAS_RESTART_POLICY:-unless-stopped}
+
+  compras_lb:
+    image: nexustix-staging/compras-lb:auth
+    build:
+      context: .
+      dockerfile: compras_lb/Dockerfile
+    ports:
+      - "127.0.0.1:18085:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/lb-health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: [staging]
+    restart: unless-stopped
+
+  frontend:
+    image: nexustix-staging/frontend:auth
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    secrets:
+      - frontend_config
+    ports:
+      - "127.0.0.1:18080:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: [staging]
+    restart: unless-stopped
+
+networks:
+  staging:
+    name: nexustix-auth-staging-network
+
+volumes:
+  usuarios_data:
+    name: nexustix_auth_staging_usuarios_data
+  eventos_data:
+    name: nexustix_auth_staging_eventos_data
+  compras_data:
+    name: nexustix_auth_staging_compras_data
+
+secrets:
+  usuarios_db_password:
+    file: ${NEXUSTIX_STAGING_SECRETS_DIR:?Run scripts/generar_secretos.py --entorno pruebas first}/usuarios-db-password
+  eventos_db_password:
+    file: ${NEXUSTIX_STAGING_SECRETS_DIR:?Run scripts/generar_secretos.py --entorno pruebas first}/eventos-db-password
+  compras_db_password:
+    file: ${NEXUSTIX_STAGING_SECRETS_DIR:?Run scripts/generar_secretos.py --entorno pruebas first}/compras-db-password
+  usuarios_database_url:
+    file: ${NEXUSTIX_STAGING_SECRETS_DIR:?Run scripts/generar_secretos.py --entorno pruebas first}/usuarios-database-url
+  eventos_database_url:
+    file: ${NEXUSTIX_STAGING_SECRETS_DIR:?Run scripts/generar_secretos.py --entorno pruebas first}/eventos-database-url
+  compras_database_url:
+    file: ${NEXUSTIX_STAGING_SECRETS_DIR:?Run scripts/generar_secretos.py --entorno pruebas first}/compras-database-url
+  jwt_private:
+    file: ${NEXUSTIX_STAGING_SECRETS_DIR:?Run scripts/generar_secretos.py --entorno pruebas first}/jwt-private.pem
+  jwt_public:
+    file: ${NEXUSTIX_STAGING_SECRETS_DIR:?Run scripts/generar_secretos.py --entorno pruebas first}/jwt-public.pem
+  eventos_service_token:
+    file: ${NEXUSTIX_STAGING_SECRETS_DIR:?Run scripts/generar_secretos.py --entorno pruebas first}/eventos-service-token
+  frontend_config:
+    file: ${NEXUSTIX_STAGING_SECRETS_DIR:?Run scripts/generar_secretos.py --entorno pruebas first}/frontend-config.js
+  admin_password:
+    file: ${NEXUSTIX_STAGING_SECRETS_DIR:?Run scripts/generar_secretos.py --entorno pruebas first}/admin-password

@@ -1,0 +1,562 @@
+[
+  {
+    "huella": "6cd1f7d17a4e2b8205e52f2e624c29dc1c561b3166d26230069f817f8abf38b6",
+    "ruta": "config/pruebas.env.example",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Ejemplo que referencia una ruta mediante variable de shell, no su contenido."
+  },
+  {
+    "huella": "d40bb0b516abf73e3211d155140e3c64973ae7b0a8a7b73b41ac41dbeebec68a",
+    "ruta": "config/pruebas.env.example",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Ejemplo que referencia una ruta mediante variable de shell, no su contenido."
+  },
+  {
+    "huella": "cef9d147d2cca7f9d9adf45dc200bb1705991617468a8b28141c40c0458f63c7",
+    "ruta": "despliegue-pc/lan.py",
+    "tipo": "URL con credencial",
+    "categoria": "falso positivo",
+    "motivo": "Valor recibido desde archivo privado o generado aleatoriamente; URL construida por interpolación, no contraseña incrustada."
+  },
+  {
+    "huella": "cfb12c8ad4d381048586e546e56fbfbe3ec34cbe582670b5e156dc97ddf9044e",
+    "ruta": "despliegue-pc/postgres/init-app.sh",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Referencia shell/psql a secreto externo, con lectura de archivo o parámetro; no valor literal."
+  },
+  {
+    "huella": "ada3de7a3709c22d10ae156d4af0e79a1e1918bf9e671968f3a3156e96369144",
+    "ruta": "despliegue-pc/postgres/init-app.sh",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Referencia shell/psql a secreto externo, con lectura de archivo o parámetro; no valor literal."
+  },
+  {
+    "huella": "e842d28e40f5934e554a2efbe3c42dd2b516dbef1fb35dd275df6f6f6ba5cfd9",
+    "ruta": "despliegue-vm/postgres/entrypoint.sh",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Referencia shell/psql a secreto externo, con lectura de archivo o parámetro; no valor literal."
+  },
+  {
+    "huella": "6095e7431d9457ab14eb1a5e11f341085961c1419a3d56a6833f71741541cfaa",
+    "ruta": "despliegue-vm/postgres/entrypoint.sh",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Referencia shell/psql a secreto externo, con lectura de archivo o parámetro; no valor literal."
+  },
+  {
+    "huella": "2c02b7373d882ff6f010f237b8741ced6262573a5912b80ec36e686abeded816",
+    "ruta": "despliegue-vm/postgres/entrypoint.sh",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Referencia shell/psql a secreto externo, con lectura de archivo o parámetro; no valor literal."
+  },
+  {
+    "huella": "f11fcb04a78ec91f941057cc1217e1e5a226f076b0fd3dda68ae1bb0d975c60f",
+    "ruta": "despliegue-vm/scripts/preparar.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Nombre/ruta de secreto o nombre de variable de configuración; no valor del secreto."
+  },
+  {
+    "huella": "a88ab40a4927162527f8561026bcd3ccd8dea5fa50c1077dd2360cfc9f8f6250",
+    "ruta": "docs/EVOLUCION_DISTRIBUIDA.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "3ebcf309d2be6d04b9114d7b40cae940696363c55e437fe7d094326e46459964",
+    "ruta": "docs/PRUEBAS_RESILIENCIA.md",
+    "tipo": "URL con credencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "2c75baf62c03dc97d3f96cf3748baf3ebdc46b03072f324901c30e6cf4de80fd",
+    "ruta": "docs/historico/AUDITORIA_TOLERANCIA_FALLOS_NEXUSTIX.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "13587f028e40865c3a33fce8de18833b208722db6148bee01e8811e409b80979",
+    "ruta": "docs/historico/AUDITORIA_TOLERANCIA_FALLOS_NEXUSTIX.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "37bdb7452bf3a5303cd2f54af577a7118789853f57a7fe7d5d979dc65a7da343",
+    "ruta": "docs/historico/AUDITORIA_TOLERANCIA_FALLOS_NEXUSTIX.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "13587f028e40865c3a33fce8de18833b208722db6148bee01e8811e409b80979",
+    "ruta": "docs/historico/AUDITORIA_TOLERANCIA_FALLOS_NEXUSTIX.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "13587f028e40865c3a33fce8de18833b208722db6148bee01e8811e409b80979",
+    "ruta": "docs/historico/AUDITORIA_TOLERANCIA_FALLOS_NEXUSTIX.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "13587f028e40865c3a33fce8de18833b208722db6148bee01e8811e409b80979",
+    "ruta": "docs/historico/AUDITORIA_TOLERANCIA_FALLOS_NEXUSTIX.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "9b725a7f92f6c4e6857a1429600852a75f6b2b3ce11cc7afc573be8e8820df36",
+    "ruta": "docs/historico/DEMO_DISTRIBUIDA_NEXUSTIX.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "ccbfd8e410c715ed652148d1162e6d03ea33fef2cfc7e44e695b8957e2b694df",
+    "ruta": "docs/historico/DEMO_DISTRIBUIDA_NEXUSTIX.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "746e2a0990a624edb04a719f4ad235000ea7a965d31eca05a90c114b096a34be",
+    "ruta": "docs/historico/GUIA_DEMOSTRACION_2026-10-25.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "eeee5be76637333d140379fdd0e56b03eac25fba0775e6f882221e9afa9f46a7",
+    "ruta": "docs/historico/GUIA_DEMOSTRACION_2026-10-25.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "24b976b73a5f997d5e697f62246474a937f9e910f6f32ea00ddf6ad206cfe864",
+    "ruta": "docs/historico/GUIA_DEMOSTRACION_2026-10-25.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "996506b511172ad377892c96ba41bdf1a895b854b30fe3fc107f839a6c10ea6a",
+    "ruta": "docs/historico/PLAN_FINALIZACION_MANUAL.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "6fe21bb772a9e59d6cedab6f61de0f272a3024e372f6dea18ecbe411b3b656d3",
+    "ruta": "docs/historico/PLAN_PRUEBAS_FALLOS.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "05bd4f68119ae8888a042393262c87f1fda373a9739e8ea11c9fa4dd2980ef88",
+    "ruta": "docs/historico/PLAN_PRUEBAS_FALLOS.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Ejemplo histórico de cuenta de prueba; no credencial de despliegue y no se usa en LAN."
+  },
+  {
+    "huella": "12c8dfca3d4ff9497085507ca0210067a363b6be2ee10288654c5edd9a26b90b",
+    "ruta": "docs/historico/STAGING_AUTENTICACION_HTTP.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "374151e6e5e0da37289367de4876d8e86ba1c30ce1e8f5a5584b13ffb0c64d90",
+    "ruta": "docs/historico/STAGING_AUTENTICACION_HTTP.md",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Documento: referencia a variable/archivo o placeholder explícito, sin credencial concreta."
+  },
+  {
+    "huella": "5eca0ad2e9fdf02ead69b1c8f7c9271ef86cf6fb292cb098f9f54be70e3a754f",
+    "ruta": "frontend/app.js",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Tipo/esquema, formato bearer/autocomplete o lectura de formulario/archivo; no autenticador fijo."
+  },
+  {
+    "huella": "267dae589edc4a82fc754f16c79c70e63c4f94be9b11fa840c2fd1318cf2ba99",
+    "ruta": "frontend/app.js",
+    "tipo": "contraseña sin comillas",
+    "categoria": "falso positivo",
+    "motivo": "Tipo/esquema, formato bearer/autocomplete o lectura de formulario/archivo; no autenticador fijo."
+  },
+  {
+    "huella": "2fe64b8f35615980ea09c02bcc2107e19de508da7e9540d7655817c6415ead02",
+    "ruta": "postgres/init-replication.sh",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Referencia shell/psql a secreto externo, con lectura de archivo o parámetro; no valor literal."
+  },
+  {
+    "huella": "8d5c3edc24d6e23ef487208f22e2bcfb6ba62d79343a9b3ffe7a0a5d6b386956",
+    "ruta": "postgres/nexustix-entrypoint.sh",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Referencia shell/psql a secreto externo, con lectura de archivo o parámetro; no valor literal."
+  },
+  {
+    "huella": "623c46a130f42b28a5f88d582a7ff11b31fdb8bf92002f30f9d1c519cf596fcd",
+    "ruta": "postgres/nexustix-entrypoint.sh",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Referencia shell/psql a secreto externo, con lectura de archivo o parámetro; no valor literal."
+  },
+  {
+    "huella": "cfe0cd917e34130e90e6baff6c1e584b74bb8d3bd49dfd85e2dc792048acbf46",
+    "ruta": "scripts/diagnostico_compras2_crash.sh",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Referencia shell/psql a secreto externo, con lectura de archivo o parámetro; no valor literal."
+  },
+  {
+    "huella": "703954c8426ece1585e923a3dc1d518db67001b25fe014dbe6ec8435df08c274",
+    "ruta": "scripts/ejecutar_pruebas.py",
+    "tipo": "URL con credencial",
+    "categoria": "falso positivo",
+    "motivo": "Valor recibido desde archivo privado o generado aleatoriamente; URL construida por interpolación, no contraseña incrustada."
+  },
+  {
+    "huella": "cd21c569f09e6930931c82882db263e6c4d81468789ae939002d4d65d3e64e7e",
+    "ruta": "scripts/entornos.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Nombre/ruta de secreto o nombre de variable de configuración; no valor del secreto."
+  },
+  {
+    "huella": "a88bcd9e940e1ed7436a5a265d3134aacaf4ac98ee805163d5860d58f72cb81c",
+    "ruta": "scripts/entornos.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Nombre/ruta de secreto o nombre de variable de configuración; no valor del secreto."
+  },
+  {
+    "huella": "e22877caf5694f6fb51ce9222a4d12c81c638b300ceec462fb85981bb06b87c9",
+    "ruta": "scripts/entornos.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Nombre/ruta de secreto o nombre de variable de configuración; no valor del secreto."
+  },
+  {
+    "huella": "11997c445405d8266268d0f0001cac9510dc5bd0626f793b4a6b5bbaabf65cda",
+    "ruta": "scripts/entornos.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Nombre/ruta de secreto o nombre de variable de configuración; no valor del secreto."
+  },
+  {
+    "huella": "8c50ab8763d60328550f6df68c0eff187e42ae5f7ea8235c738d50911a257058",
+    "ruta": "scripts/generar_secretos.py",
+    "tipo": "URL con credencial",
+    "categoria": "falso positivo",
+    "motivo": "Valor recibido desde archivo privado o generado aleatoriamente; URL construida por interpolación, no contraseña incrustada."
+  },
+  {
+    "huella": "81e4a06211113fd91a5e149f752461a1f0a0ab10ecc21edd838b257e606ae286",
+    "ruta": "scripts/generar_secretos.py",
+    "tipo": "URL con credencial",
+    "categoria": "falso positivo",
+    "motivo": "Valor recibido desde archivo privado o generado aleatoriamente; URL construida por interpolación, no contraseña incrustada."
+  },
+  {
+    "huella": "aae34e87edf6b9d040cb02407ca8cefe703b263a91d8018ec80ba18214ff8f4c",
+    "ruta": "scripts/generar_secretos.py",
+    "tipo": "contraseña sin comillas",
+    "categoria": "falso positivo",
+    "motivo": "Valor recibido desde archivo privado o generado aleatoriamente; URL construida por interpolación, no contraseña incrustada."
+  },
+  {
+    "huella": "9bded5edc831b10f6064e5236bfc3f3e4039215d7701cd85f12284ad1b353d91",
+    "ruta": "scripts/generar_topologia.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Nombre/ruta de secreto o nombre de variable de configuración; no valor del secreto."
+  },
+  {
+    "huella": "a79bab1f43c675f6943041929542c6ee8a8105e6e9660a6b7f122cfe3ef445da",
+    "ruta": "scripts/generar_topologia.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Nombre/ruta de secreto o nombre de variable de configuración; no valor del secreto."
+  },
+  {
+    "huella": "7b262ab101c8282c7d80bbd42d5ae87538599cd89dd27e0f39070b71f4564769",
+    "ruta": "scripts/locust_safety.py",
+    "tipo": "contraseña sin comillas",
+    "categoria": "falso positivo",
+    "motivo": "Tipo/esquema, formato bearer/autocomplete o lectura de formulario/archivo; no autenticador fijo."
+  },
+  {
+    "huella": "7b5624efa9ff883141403a4bf37ee812afb0ab7551b69ba3cc8a43dc87e14166",
+    "ruta": "scripts/probar_local.py",
+    "tipo": "URL con credencial",
+    "categoria": "falso positivo",
+    "motivo": "Valor recibido desde archivo privado o generado aleatoriamente; URL construida por interpolación, no contraseña incrustada."
+  },
+  {
+    "huella": "c7cb4ee97f4419aaed8c1e3291aa8a375d48ecf6d55449dd0bb681bc2085d092",
+    "ruta": "tests/lan/test_lan_preparacion.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "7081f2c6e26071acc20dd3ea6ff0602feecbd24a4d4dfb09023dc1213e0d4af0",
+    "ruta": "tests/postgres/conftest.py",
+    "tipo": "URL con credencial",
+    "categoria": "falso positivo",
+    "motivo": "Placeholder de documentación para conexión opt-in a base desechable."
+  },
+  {
+    "huella": "784fa236657e555ca3cca4ca007bfd0b845d34dcfa7fef89d8d2c66ad46631ca",
+    "ruta": "tests/resiliencia/test_05_dependencias.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "92da48b4dcd155e8a639690453875e97674cb99eb0b491a31ef25ea068ed1feb",
+    "ruta": "tests/resiliencia/test_07_postgres.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "716d01f468da9b5b2f102bb4c64ad1b0c12c7d3ea60a4fb65e55f6c28d9d7625",
+    "ruta": "tests/staging/frontend_auth_state.test.js",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "f44061c22ca6334b27f0d96d648893a225c7541bb247ce13b7b7d80b9e8d2978",
+    "ruta": "tests/staging/frontend_auth_state.test.js",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "ccc3923a1d0565cf855b67273a74ebd12ab46de70054242e61ef8fd9a70cfabd",
+    "ruta": "tests/staging/frontend_auth_state.test.js",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "d05006598a74b2e1a7c70eb9b152b433beea23f286c04ad78f49a0a76776ea77",
+    "ruta": "tests/staging/frontend_auth_state.test.js",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "9bc7348b95617f3b8f5f4b138b3b86e59fcc9fb6ec59af30f704911acec1c2da",
+    "ruta": "tests/staging/frontend_auth_state.test.js",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "c332f7796261aa558756167cb38bff209d0803e6725c04a29a5dd4afdcb9e712",
+    "ruta": "tests/staging/frontend_auth_state.test.js",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "3b06b6a3aa2afe013bbc137bdf5db9886c95293fe2c9e4a45162ddb54dfab36d",
+    "ruta": "tests/staging/test_auth_http.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "51f9d4d6bf10fe95405378d25a1b17beaf6150753b36483fc633b758fa9e309a",
+    "ruta": "tests/staging/test_auth_http.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Parámetro SQL interpolado desde un hash calculado, no un token literal."
+  },
+  {
+    "huella": "b1a122d796619906b64084a426a746df61e76e4d694bf1db1eb1f0118c1df06d",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "693fc81516f0a01b3570b622f48588f20a8c49a82b46b795a89ad97baa8cd191",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "09e8a0c73dbc609a6b7aff02c16ca3637da83d2954960f91af64d6e1321dba4c",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "2b4e0ae8450d3135da2cd762157d97c6ef976c01da7b2789b652385e1f39b649",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "2dd528a3cf4c19a6e5349179a68692db4e382afcee3203ff7372d6c807c1e645",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "c16adb2699ded152c47138b1098e8ada80a6e73e80b48b37bf9f2e4bd9e324ba",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "bdafd9bf982db13b3a74dd3e3f8884cab55e27212c9c81d43bfb33584b56b384",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "bdafd9bf982db13b3a74dd3e3f8884cab55e27212c9c81d43bfb33584b56b384",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "bdafd9bf982db13b3a74dd3e3f8884cab55e27212c9c81d43bfb33584b56b384",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "bdafd9bf982db13b3a74dd3e3f8884cab55e27212c9c81d43bfb33584b56b384",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "bdafd9bf982db13b3a74dd3e3f8884cab55e27212c9c81d43bfb33584b56b384",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "bdafd9bf982db13b3a74dd3e3f8884cab55e27212c9c81d43bfb33584b56b384",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "bdafd9bf982db13b3a74dd3e3f8884cab55e27212c9c81d43bfb33584b56b384",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "bdafd9bf982db13b3a74dd3e3f8884cab55e27212c9c81d43bfb33584b56b384",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "bdafd9bf982db13b3a74dd3e3f8884cab55e27212c9c81d43bfb33584b56b384",
+    "ruta": "tests/test_authentication.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "1bb6f5e635e565437fb858874d65d9915eb6cb24a5ccf52a0e0e7825ea0b107a",
+    "ruta": "tests/test_configuracion.py",
+    "tipo": "URL con credencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "75c9d80cbd84e73e9b0e924c8a7564b5fc72da41f46771a148e836faa8ef75dc",
+    "ruta": "tests/test_configuracion.py",
+    "tipo": "URL con credencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "0fcb5532f6f000bbdadd6f2d42cd43138f98a322ae219d66e1ebf596e3e5d3c1",
+    "ruta": "tests/test_configuracion.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "111fe815ce71f751e69fd2f6dbaff923904d0606b82b9c4baff67d7e82647e3b",
+    "ruta": "tests/test_locust_safety.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "dato sintético",
+    "motivo": "Entrada de test con SQLite/dobles o cuenta sintética de suite opt-in; nunca configuración de la LAN."
+  },
+  {
+    "huella": "af5bc6327e0cc23bfef481814539b4b95a0994aa3fa37489eb763175487399e8",
+    "ruta": "usuarios/bootstrap_admin.py",
+    "tipo": "contraseña sin comillas",
+    "categoria": "falso positivo",
+    "motivo": "Tipo/esquema, formato bearer/autocomplete o lectura de formulario/archivo; no autenticador fijo."
+  },
+  {
+    "huella": "bf7e6c9dca2c7c580b996e6907e64ffd62f476370455158140b32a309ea02e33",
+    "ruta": "usuarios/main.py",
+    "tipo": "contraseña sin comillas",
+    "categoria": "falso positivo",
+    "motivo": "Tipo/esquema, formato bearer/autocomplete o lectura de formulario/archivo; no autenticador fijo."
+  },
+  {
+    "huella": "b5fe588b9057f9a2b2d6cd1741a0f547f7cee103d4747fb320048d176d96fba1",
+    "ruta": "usuarios/main.py",
+    "tipo": "contraseña sin comillas",
+    "categoria": "falso positivo",
+    "motivo": "Tipo/esquema, formato bearer/autocomplete o lectura de formulario/archivo; no autenticador fijo."
+  },
+  {
+    "huella": "f1058b951ccad693e9a40c9cbae1f33f5eb8cfa5f4b645087b1e0f6271d86285",
+    "ruta": "usuarios/main.py",
+    "tipo": "credencial literal potencial",
+    "categoria": "falso positivo",
+    "motivo": "Tipo/esquema, formato bearer/autocomplete o lectura de formulario/archivo; no autenticador fijo."
+  }
+]

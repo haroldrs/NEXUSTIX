@@ -1,0 +1,93 @@
+# LAN nueva; PostgreSQL centralizado; no desplegado.
+name: nexustix-lan-${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-pc3
+services:
+  usuarios:
+    restart: unless-stopped
+    labels: &id001
+      org.nexustix.installation: ${LAN_INSTALLATION_UUID:?Defina LAN_INSTALLATION_UUID}
+      org.nexustix.role: pc3
+    networks:
+    - lan
+    image: nexustix-lan/${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-usuarios:local
+    build:
+      context: ..
+      dockerfile: usuarios/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/usuarios_database_url
+      DB_APPLICATION_NAME: usuarios-pc3
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      FRONTEND_ORIGINS: http://${LAN_PC1_IP:?Defina LAN_PC1_IP}:${LAN_FRONTEND_PORT:?Defina
+        LAN_FRONTEND_PORT}
+      NEXUSTIX_DEPLOYMENT_ENV: lan
+      INSTANCE_ID: usuarios-pc3
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private
+      AUTH_COOKIE_SECURE: 'false'
+      ACCESS_TOKEN_TTL_SECONDS: '600'
+      REFRESH_TOKEN_TTL_DAYS: '1'
+    secrets:
+    - usuarios_database_url
+    - jwt_public
+    - jwt_private
+    ports:
+    - ${LAN_BIND_IP:?Defina LAN_BIND_IP}:${LAN_USUARIOS_PORT:?Defina LAN_USUARIOS_PORT}:8001
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8001/health
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 60s
+  eventos:
+    restart: unless-stopped
+    labels: *id001
+    networks:
+    - lan
+    image: nexustix-lan/${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-eventos:local
+    build:
+      context: ..
+      dockerfile: eventos/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/eventos_database_url
+      DB_APPLICATION_NAME: eventos-pc3
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      FRONTEND_ORIGINS: http://${LAN_PC1_IP:?Defina LAN_PC1_IP}:${LAN_FRONTEND_PORT:?Defina
+        LAN_FRONTEND_PORT}
+      NEXUSTIX_DEPLOYMENT_ENV: lan
+      INSTANCE_ID: eventos-pc3
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+    secrets:
+    - eventos_database_url
+    - jwt_public
+    - eventos_service_token
+    ports:
+    - ${LAN_BIND_IP:?Defina LAN_BIND_IP}:${LAN_EVENTOS_PORT:?Defina LAN_EVENTOS_PORT}:8002
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8002/health
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 60s
+networks:
+  lan:
+    name: nexustix-lan-${LAN_DEPLOYMENT_ID:?Defina LAN_DEPLOYMENT_ID}-pc3_network
+    labels: *id001
+secrets:
+  usuarios_database_url:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/usuarios-database-url
+  jwt_public:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/jwt-public.pem
+  jwt_private:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/jwt-private.pem
+  eventos_database_url:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/eventos-database-url
+  eventos_service_token:
+    file: ${LAN_SECRETS_DIR:?Defina LAN_SECRETS_DIR}/eventos-service-token

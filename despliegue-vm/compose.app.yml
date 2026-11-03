@@ -1,0 +1,216 @@
+# Preparación: no desplegado en VMs.
+name: nexustix-vm-app
+services:
+  usuarios:
+    image: nexustix-vm/usuarios:auth
+    build:
+      context: ..
+      dockerfile: usuarios/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/usuarios_database_url
+      DB_APPLICATION_NAME: usuarios
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      FRONTEND_ORIGINS: "http://${VM_APP_HOST:?Defina host de aplicaci\xF3n}:8080"
+      AUTH_COOKIE_SECURE: 'false'
+      ACCESS_TOKEN_TTL_SECONDS: '600'
+      REFRESH_TOKEN_TTL_DAYS: '1'
+      NEXUSTIX_DEPLOYMENT_ENV: vm
+    secrets:
+    - usuarios_database_url
+    - jwt_private
+    - jwt_public
+    - admin_password
+    ports:
+    - ${VM_BIND_IP:?Defina la IP privada de esta VM}:8001:8001
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8001/health
+    depends_on: {}
+    networks:
+    - distributed
+    restart: unless-stopped
+  eventos:
+    image: nexustix-vm/eventos:auth
+    build:
+      context: ..
+      dockerfile: eventos/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/eventos_database_url
+      DB_APPLICATION_NAME: eventos
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+      FRONTEND_ORIGINS: "http://${VM_APP_HOST:?Defina host de aplicaci\xF3n}:8080"
+      NEXUSTIX_DEPLOYMENT_ENV: vm
+    secrets:
+    - eventos_database_url
+    - jwt_public
+    - eventos_service_token
+    ports:
+    - ${VM_BIND_IP:?Defina la IP privada de esta VM}:8002:8002
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8002/health
+    depends_on: {}
+    networks:
+    - distributed
+    restart: unless-stopped
+  compras1:
+    image: nexustix-vm/compras:auth
+    build:
+      context: ..
+      dockerfile: compras/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/compras_database_url
+      DB_APPLICATION_NAME: compras1
+      EVENTOS_URL: http://eventos:8002
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+      FRONTEND_ORIGINS: "http://${VM_APP_HOST:?Defina host de aplicaci\xF3n}:8080"
+      INSTANCE_ID: '1'
+      NEXUSTIX_DEPLOYMENT_ENV: vm
+      NEXUSTIX_TEST_CRASH_HOOKS: '0'
+      NEXUSTIX_TEST_HOLD_SECONDS: '0'
+      PURCHASE_RECOVERY_INTERVAL_SECONDS: '10'
+      PURCHASE_RECOVERY_AUTO_RELEASE: '0'
+    secrets:
+    - compras_database_url
+    - jwt_public
+    - eventos_service_token
+    ports:
+    - ${VM_BIND_IP:?Defina la IP privada de esta VM}:8003:8003
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8003/health
+    depends_on: {}
+    networks:
+    - distributed
+    restart: unless-stopped
+  compras2:
+    image: nexustix-vm/compras:auth
+    build:
+      context: ..
+      dockerfile: compras/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/compras_database_url
+      DB_APPLICATION_NAME: compras2
+      EVENTOS_URL: http://eventos:8002
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+      FRONTEND_ORIGINS: "http://${VM_APP_HOST:?Defina host de aplicaci\xF3n}:8080"
+      INSTANCE_ID: '2'
+      NEXUSTIX_DEPLOYMENT_ENV: vm
+      NEXUSTIX_TEST_CRASH_HOOKS: '0'
+      NEXUSTIX_TEST_HOLD_SECONDS: '0'
+      PURCHASE_RECOVERY_INTERVAL_SECONDS: '10'
+      PURCHASE_RECOVERY_AUTO_RELEASE: '0'
+    secrets:
+    - compras_database_url
+    - jwt_public
+    - eventos_service_token
+    ports:
+    - ${VM_BIND_IP:?Defina la IP privada de esta VM}:8004:8003
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      test:
+      - CMD
+      - python
+      - -m
+      - shared.healthcheck
+      - http://127.0.0.1:8003/health
+    depends_on: {}
+    networks:
+    - distributed
+    restart: unless-stopped
+  compras_lb:
+    image: nexustix-vm/compras-lb:auth
+    build:
+      context: ..
+      dockerfile: compras_lb/Dockerfile
+    ports:
+    - ${VM_BIND_IP:?Defina la IP privada de esta VM}:8005:80
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O /dev/null http://127.0.0.1/lb-health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+    - distributed
+    restart: unless-stopped
+    environment:
+      NEXUSTIX_DEPLOYMENT_ENV: vm
+    depends_on: {}
+  frontend:
+    image: nexustix-vm/frontend:auth
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    secrets:
+    - frontend_config
+    ports:
+    - ${VM_BIND_IP:?Defina la IP privada de esta VM}:8080:80
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O /dev/null http://127.0.0.1/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+    - distributed
+    restart: unless-stopped
+    environment:
+      NEXUSTIX_DEPLOYMENT_ENV: vm
+    depends_on: {}
+volumes: {}
+networks:
+  distributed:
+    name: nexustix-vm-app-network
+secrets:
+  admin_password:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/admin-password
+  compras_database_url:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/compras-database-url
+  eventos_database_url:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/eventos-database-url
+  eventos_service_token:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/eventos-service-token
+  frontend_config:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/frontend-config.js
+  jwt_private:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/jwt-private.pem
+  jwt_public:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/jwt-public.pem
+  usuarios_database_url:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/usuarios-database-url

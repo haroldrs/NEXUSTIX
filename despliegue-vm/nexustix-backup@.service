@@ -1,0 +1,17 @@
+[Unit]
+Description=Backup físico verificable NEXUSTIX (%i)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=nexustix-backup
+Group=nexustix-backup
+UMask=0077
+EnvironmentFile=/etc/nexustix/backup-%i.env
+ExecStart=/usr/bin/python3 /opt/nexustix/scripts/backup_programado.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nexustix/backups

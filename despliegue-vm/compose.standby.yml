@@ -1,0 +1,220 @@
+# Preparación: no desplegado en VMs.
+name: nexustix-vm-standby
+services:
+  usuarios_db_replica:
+    image: nexustix-vm/postgres:15
+    build:
+      context: ..
+      dockerfile: despliegue-vm/postgres/Dockerfile
+    environment:
+      POSTGRES_DB: usuarios_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/usuarios_db_password
+      NEXUSTIX_DEPLOYMENT_ENV: vm
+      NEXUSTIX_REPLICA_SLOT: usuarios_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+      NEXUSTIX_PG_UPSTREAM_HOST: ${VM_PRIMARY_HOST:?Defina primario}
+      NEXUSTIX_PG_SLOT: usuarios_db_replica
+      NEXUSTIX_PG_UPSTREAM_PORT: '5432'
+      PGDATA: /var/lib/postgresql/data/cluster
+      VM_APP_HOST: ${VM_APP_HOST:?Defina IP privada}
+      VM_PRIMARY_HOST: ${VM_PRIMARY_HOST:?Defina IP privada}
+      VM_STANDBY_HOST: ${VM_STANDBY_HOST:?Defina IP privada}
+    command:
+    - postgres
+    - -c
+    - wal_level=replica
+    - -c
+    - max_replication_slots=10
+    - -c
+    - max_wal_senders=10
+    - -c
+    - hot_standby=on
+    - -c
+    - wal_sender_timeout=15s
+    - -c
+    - wal_receiver_timeout=15s
+    - -c
+    - archive_mode=on
+    - -c
+    - archive_timeout=60s
+    - -c
+    - archive_command=archive-wal.sh %p %f
+    - -c
+    - max_slot_wal_keep_size=1024MB
+    - -c
+    - wal_log_hints=on
+    - -c
+    - checkpoint_timeout=5min
+    secrets:
+    - usuarios_db_password
+    - replication_password
+    volumes:
+    - usuarios_replica_data:/var/lib/postgresql/data
+    - usuarios_wal:/var/lib/postgresql/archive
+    healthcheck:
+      test:
+      - CMD
+      - nexustix-healthcheck.sh
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+    networks:
+    - distributed
+    restart: unless-stopped
+    ports:
+    - ${VM_BIND_IP:?Defina la IP privada de esta VM}:5432:5432
+  eventos_db_replica:
+    image: nexustix-vm/postgres:15
+    build:
+      context: ..
+      dockerfile: despliegue-vm/postgres/Dockerfile
+    environment:
+      POSTGRES_DB: eventos_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/eventos_db_password
+      NEXUSTIX_DEPLOYMENT_ENV: vm
+      NEXUSTIX_REPLICA_SLOT: eventos_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+      NEXUSTIX_PG_UPSTREAM_HOST: ${VM_PRIMARY_HOST:?Defina primario}
+      NEXUSTIX_PG_SLOT: eventos_db_replica
+      NEXUSTIX_PG_UPSTREAM_PORT: '5433'
+      PGDATA: /var/lib/postgresql/data/cluster
+      VM_APP_HOST: ${VM_APP_HOST:?Defina IP privada}
+      VM_PRIMARY_HOST: ${VM_PRIMARY_HOST:?Defina IP privada}
+      VM_STANDBY_HOST: ${VM_STANDBY_HOST:?Defina IP privada}
+    command:
+    - postgres
+    - -c
+    - wal_level=replica
+    - -c
+    - max_replication_slots=10
+    - -c
+    - max_wal_senders=10
+    - -c
+    - hot_standby=on
+    - -c
+    - wal_sender_timeout=15s
+    - -c
+    - wal_receiver_timeout=15s
+    - -c
+    - archive_mode=on
+    - -c
+    - archive_timeout=60s
+    - -c
+    - archive_command=archive-wal.sh %p %f
+    - -c
+    - max_slot_wal_keep_size=1024MB
+    - -c
+    - wal_log_hints=on
+    - -c
+    - checkpoint_timeout=5min
+    secrets:
+    - eventos_db_password
+    - replication_password
+    volumes:
+    - eventos_replica_data:/var/lib/postgresql/data
+    - eventos_wal:/var/lib/postgresql/archive
+    healthcheck:
+      test:
+      - CMD
+      - nexustix-healthcheck.sh
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+    networks:
+    - distributed
+    restart: unless-stopped
+    ports:
+    - ${VM_BIND_IP:?Defina la IP privada de esta VM}:5433:5432
+  compras_db_replica:
+    image: nexustix-vm/postgres:15
+    build:
+      context: ..
+      dockerfile: despliegue-vm/postgres/Dockerfile
+    environment:
+      POSTGRES_DB: compras_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/compras_db_password
+      NEXUSTIX_DEPLOYMENT_ENV: vm
+      NEXUSTIX_REPLICA_SLOT: compras_db_replica
+      NEXUSTIX_REPLICATION_PASSWORD_FILE: /run/secrets/replication_password
+      NEXUSTIX_PG_UPSTREAM_HOST: ${VM_PRIMARY_HOST:?Defina primario}
+      NEXUSTIX_PG_SLOT: compras_db_replica
+      NEXUSTIX_PG_UPSTREAM_PORT: '5434'
+      PGDATA: /var/lib/postgresql/data/cluster
+      VM_APP_HOST: ${VM_APP_HOST:?Defina IP privada}
+      VM_PRIMARY_HOST: ${VM_PRIMARY_HOST:?Defina IP privada}
+      VM_STANDBY_HOST: ${VM_STANDBY_HOST:?Defina IP privada}
+    command:
+    - postgres
+    - -c
+    - wal_level=replica
+    - -c
+    - max_replication_slots=10
+    - -c
+    - max_wal_senders=10
+    - -c
+    - hot_standby=on
+    - -c
+    - wal_sender_timeout=15s
+    - -c
+    - wal_receiver_timeout=15s
+    - -c
+    - archive_mode=on
+    - -c
+    - archive_timeout=60s
+    - -c
+    - archive_command=archive-wal.sh %p %f
+    - -c
+    - max_slot_wal_keep_size=1024MB
+    - -c
+    - wal_log_hints=on
+    - -c
+    - checkpoint_timeout=5min
+    secrets:
+    - compras_db_password
+    - replication_password
+    volumes:
+    - compras_replica_data:/var/lib/postgresql/data
+    - compras_wal:/var/lib/postgresql/archive
+    healthcheck:
+      test:
+      - CMD
+      - nexustix-healthcheck.sh
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+    networks:
+    - distributed
+    restart: unless-stopped
+    ports:
+    - ${VM_BIND_IP:?Defina la IP privada de esta VM}:5434:5432
+volumes:
+  compras_replica_data:
+    name: nexustix-vm-standby_compras_replica_data
+  eventos_replica_data:
+    name: nexustix-vm-standby_eventos_replica_data
+  usuarios_replica_data:
+    name: nexustix-vm-standby_usuarios_replica_data
+  usuarios_wal:
+    name: nexustix-vm-standby_usuarios_wal
+  eventos_wal:
+    name: nexustix-vm-standby_eventos_wal
+  compras_wal:
+    name: nexustix-vm-standby_compras_wal
+networks:
+  distributed:
+    name: nexustix-vm-standby-network
+secrets:
+  compras_db_password:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/compras-db-password
+  eventos_db_password:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/eventos-db-password
+  replication_password:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/replication-password
+  usuarios_db_password:
+    file: ${NEXUSTIX_DISTRIBUTED_SECRETS_DIR:?Defina una carpeta NUEVA de secretos}/usuarios-db-password

@@ -1,0 +1,5 @@
+# Pruebas de carga (Locust) contra el entorno de pruebas aislado.
+# Instalar en el mismo entorno virtual que requirements-test.txt.
+# Rango abierto dentro de 2.x para que pip elija una versión con ruedas para el
+# Python de Fedora (3.13/3.14).
+locust>=2.40,<3

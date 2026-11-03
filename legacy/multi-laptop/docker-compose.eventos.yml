@@ -1,0 +1,39 @@
+# ============================================================
+# LAPTOP 2 — Servicio de EVENTOS
+# ============================================================
+#   cd Project
+#   docker compose -f multi-laptop/docker-compose.eventos.yml up --build
+#
+# Tampoco necesita la IP de nadie: eventos solo responde peticiones.
+# ============================================================
+services:
+  eventos_db:
+    image: postgres:15-alpine
+    container_name: eventos_db
+    environment:
+      POSTGRES_DB: eventos_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LEGACY_EVENTOS_DB_PASSWORD:?Credencial externa obligatoria}
+    volumes:
+      - eventos_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  eventos:
+    build: ../eventos
+    container_name: eventos
+    environment:
+      DATABASE_URL: ${LEGACY_EVENTOS_DATABASE_URL:?URL externa obligatoria}
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+    depends_on:
+      eventos_db:
+        condition: service_healthy
+
+volumes:
+  eventos_data:

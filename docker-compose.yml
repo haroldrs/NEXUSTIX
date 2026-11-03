@@ -1,0 +1,289 @@
+# NEXUSTIX — entorno principal de DEMOSTRACIÓN (proyecto Compose "nexustix").
+#
+# Preparación (una vez):   python3 scripts/generar_secretos.py --entorno demo
+# Uso recomendado:         python3 scripts/nx.py demo up | status | stop
+# Uso directo equivalente: export NEXUSTIX_SECRETS_DIR=~/.config/nexustix/demo-secrets
+#                          docker compose -p nexustix -f docker-compose.yml up -d --build --wait
+#
+# - Sin container_name: los scripts localizan contenedores por etiquetas de
+#   proyecto/servicio, así que demo y pruebas nunca se confunden.
+# - Volúmenes con nombre explícito (nexustix_*): no dependen de la carpeta en
+#   la que se descomprima el proyecto. Para reutilizar volúmenes de una
+#   instalación anterior defina NEXUSTIX_VOLUME_PREFIX (ver README).
+# - Puertos publicados solo en 127.0.0.1 salvo que NEXUSTIX_BIND_ADDRESS diga
+#   otra cosa (p. ej. 0.0.0.0 para un despliegue en red/dos PC).
+# - El overlay docker-compose.replicacion.yml añade réplicas PostgreSQL.
+name: nexustix
+
+x-api-healthcheck: &api-healthcheck
+  interval: 10s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
+
+x-pg-command: &pg-command
+  # Detección rápida de clientes muertos (una réplica de Compras eliminada sin
+  # cerrar su conexión no retiene bloqueos de fila durante horas) y límite a
+  # transacciones abandonadas. Las APIs usan keepalives equivalentes (shared/db_engine.py).
+  ["postgres", "-c", "tcp_keepalives_idle=10", "-c", "tcp_keepalives_interval=5", "-c", "tcp_keepalives_count=3", "-c", "idle_in_transaction_session_timeout=120s"]
+
+x-db-healthcheck: &db-healthcheck
+  test: ["CMD", "nexustix-healthcheck.sh"]
+  interval: 5s
+  timeout: 5s
+  retries: 12
+  start_period: 30s
+
+services:
+
+  # ---------- Servicio USUARIOS ----------
+  usuarios_db:
+    image: nexustix/postgres:15
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
+    environment:
+      POSTGRES_DB: usuarios_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/usuarios_db_password
+    command: *pg-command
+    secrets:
+      - usuarios_db_password
+    volumes:
+      - usuarios_data:/var/lib/postgresql/data
+    networks:
+      - red_conciertos
+    healthcheck: *db-healthcheck
+    restart: unless-stopped
+
+  usuarios:
+    image: nexustix/usuarios:local
+    build:
+      context: .
+      dockerfile: usuarios/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/usuarios_database_url
+      DB_APPLICATION_NAME: usuarios
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      FRONTEND_ORIGINS: ${NEXUSTIX_FRONTEND_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      # Sin TLS la cookie "Secure" no se enviaría desde una IP de red; ponga
+      # true cuando el frontend se sirva por HTTPS.
+      AUTH_COOKIE_SECURE: ${NEXUSTIX_AUTH_COOKIE_SECURE:-false}
+      ACCESS_TOKEN_TTL_SECONDS: ${NEXUSTIX_ACCESS_TOKEN_TTL_SECONDS:-600}
+    secrets:
+      - usuarios_database_url
+      - jwt_private
+      - jwt_public
+      - admin_password
+    ports:
+      - "${NEXUSTIX_BIND_ADDRESS:-127.0.0.1}:8001:8001"
+    healthcheck:
+      <<: *api-healthcheck
+      test: ["CMD", "python", "-m", "shared.healthcheck", "http://127.0.0.1:8001/health"]
+    restart: unless-stopped
+    depends_on:
+      usuarios_db:
+        condition: service_healthy
+    networks:
+      - red_conciertos
+
+  # ---------- Servicio EVENTOS ----------
+  eventos_db:
+    image: nexustix/postgres:15
+    build: &postgres-build
+      context: .
+      dockerfile: postgres/Dockerfile
+    environment:
+      POSTGRES_DB: eventos_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/eventos_db_password
+    command: *pg-command
+    secrets:
+      - eventos_db_password
+    volumes:
+      - eventos_data:/var/lib/postgresql/data
+    networks:
+      - red_conciertos
+    healthcheck: *db-healthcheck
+    restart: unless-stopped
+
+  eventos:
+    image: nexustix/eventos:local
+    build:
+      context: .
+      dockerfile: eventos/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/eventos_database_url
+      DB_APPLICATION_NAME: eventos
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+      FRONTEND_ORIGINS: ${NEXUSTIX_FRONTEND_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+    secrets:
+      - eventos_database_url
+      - jwt_public
+      - eventos_service_token
+    ports:
+      - "${NEXUSTIX_BIND_ADDRESS:-127.0.0.1}:8002:8002"
+    healthcheck:
+      <<: *api-healthcheck
+      test: ["CMD", "python", "-m", "shared.healthcheck", "http://127.0.0.1:8002/health"]
+    restart: unless-stopped
+    depends_on:
+      eventos_db:
+        condition: service_healthy
+    networks:
+      - red_conciertos
+
+  # ---------- Servicio COMPRAS (replicado x2, misma BD compartida) ----------
+  compras_db:
+    image: nexustix/postgres:15
+    build: *postgres-build
+    environment:
+      POSTGRES_DB: compras_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/compras_db_password
+    command: *pg-command
+    secrets:
+      - compras_db_password
+    volumes:
+      - compras_data:/var/lib/postgresql/data
+    networks:
+      - red_conciertos
+    healthcheck: *db-healthcheck
+    restart: unless-stopped
+
+  compras1:
+    image: nexustix/compras:local
+    build: &compras-build
+      context: .
+      dockerfile: compras/Dockerfile
+    environment: &compras-env
+      DATABASE_URL_FILE: /run/secrets/compras_database_url
+      DB_APPLICATION_NAME: compras1
+      EVENTOS_URL: http://eventos:8002
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
+      FRONTEND_ORIGINS: ${NEXUSTIX_FRONTEND_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      INSTANCE_ID: "1"
+      # Recuperación automática: confirma reservas de compras ya persistidas
+      # y repara respuestas idempotentes. No libera stock por sí sola.
+      PURCHASE_RECOVERY_INTERVAL_SECONDS: ${NEXUSTIX_RECOVERY_INTERVAL_SECONDS:-30}
+      PURCHASE_RECOVERY_AUTO_RELEASE: "0"
+    secrets: &compras-secrets
+      - compras_database_url
+      - jwt_public
+      - eventos_service_token
+    ports:
+      - "${NEXUSTIX_BIND_ADDRESS:-127.0.0.1}:8003:8003"
+    healthcheck:
+      <<: *api-healthcheck
+      test: ["CMD", "python", "-m", "shared.healthcheck", "http://127.0.0.1:8003/health"]
+    # unless-stopped: un fallo del proceso se reinicia siempre; una parada
+    # manual (docker compose stop compras1) se respeta, lo que permite
+    # demostrar la caída controlada de una réplica.
+    restart: unless-stopped
+    depends_on:
+      compras_db:
+        condition: service_healthy
+    networks:
+      - red_conciertos
+
+  compras2:
+    image: nexustix/compras:local
+    build: *compras-build
+    environment:
+      <<: *compras-env
+      DB_APPLICATION_NAME: compras2
+      INSTANCE_ID: "2"
+    secrets: *compras-secrets
+    ports:
+      - "${NEXUSTIX_BIND_ADDRESS:-127.0.0.1}:8004:8003"
+    healthcheck:
+      <<: *api-healthcheck
+      test: ["CMD", "python", "-m", "shared.healthcheck", "http://127.0.0.1:8003/health"]
+    restart: unless-stopped
+    depends_on:
+      compras_db:
+        condition: service_healthy
+    networks:
+      - red_conciertos
+
+  # ---------- Balanceador de carga para Compras (tolerancia a fallos) ----------
+  compras_lb:
+    image: nexustix/compras-lb:local
+    build:
+      context: .
+      dockerfile: compras_lb/Dockerfile
+    ports:
+      - "${NEXUSTIX_BIND_ADDRESS:-127.0.0.1}:8005:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/lb-health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # Sin depends_on: el balanceador arranca aunque una (o ambas) réplicas
+    # estén caídas y empieza a enrutar cuando vuelven ("resolve" en nginx.conf).
+    # Así "docker compose up -d compras_lb" tampoco revive una réplica que se
+    # detuvo a propósito durante la demostración.
+    networks:
+      - red_conciertos
+    restart: unless-stopped
+
+  # ---------- Interfaz web ----------
+  frontend:
+    image: nexustix/frontend:local
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    secrets:
+      - frontend_config
+    ports:
+      - "${NEXUSTIX_BIND_ADDRESS:-127.0.0.1}:8080:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - red_conciertos
+    restart: unless-stopped
+
+networks:
+  red_conciertos:
+    name: nexustix-red
+    driver: bridge
+
+volumes:
+  usuarios_data:
+    name: ${NEXUSTIX_VOLUME_PREFIX:-nexustix}_usuarios_data
+  eventos_data:
+    name: ${NEXUSTIX_VOLUME_PREFIX:-nexustix}_eventos_data
+  compras_data:
+    name: ${NEXUSTIX_VOLUME_PREFIX:-nexustix}_compras_data
+
+secrets:
+  usuarios_db_password:
+    file: ${NEXUSTIX_SECRETS_DIR:?Ejecute scripts/generar_secretos.py --entorno demo y exporte NEXUSTIX_SECRETS_DIR}/usuarios-db-password
+  eventos_db_password:
+    file: ${NEXUSTIX_SECRETS_DIR:?Ejecute scripts/generar_secretos.py --entorno demo}/eventos-db-password
+  compras_db_password:
+    file: ${NEXUSTIX_SECRETS_DIR:?Ejecute scripts/generar_secretos.py --entorno demo}/compras-db-password
+  usuarios_database_url:
+    file: ${NEXUSTIX_SECRETS_DIR:?Ejecute scripts/generar_secretos.py --entorno demo}/usuarios-database-url
+  eventos_database_url:
+    file: ${NEXUSTIX_SECRETS_DIR:?Ejecute scripts/generar_secretos.py --entorno demo}/eventos-database-url
+  compras_database_url:
+    file: ${NEXUSTIX_SECRETS_DIR:?Ejecute scripts/generar_secretos.py --entorno demo}/compras-database-url
+  jwt_private:
+    file: ${NEXUSTIX_SECRETS_DIR:?Ejecute scripts/generar_secretos.py --entorno demo}/jwt-private.pem
+  jwt_public:
+    file: ${NEXUSTIX_SECRETS_DIR:?Ejecute scripts/generar_secretos.py --entorno demo}/jwt-public.pem
+  eventos_service_token:
+    file: ${NEXUSTIX_SECRETS_DIR:?Ejecute scripts/generar_secretos.py --entorno demo}/eventos-service-token
+  frontend_config:
+    file: ${NEXUSTIX_SECRETS_DIR:?Ejecute scripts/generar_secretos.py --entorno demo}/frontend-config.js
+  admin_password:
+    file: ${NEXUSTIX_SECRETS_DIR:?Ejecute scripts/generar_secretos.py --entorno demo}/admin-password
