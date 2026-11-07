@@ -86,6 +86,7 @@ class Pago(Base):
     orden_id = Column(String(32), ForeignKey("ordenes.id"), primary_key=True)
     estado = Column(String(24), nullable=False)
     total_centimos = Column(Integer, nullable=False)
+    reembolsado_centimos = Column(Integer, nullable=False, default=0, server_default="0")
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -120,3 +121,41 @@ class Notificacion(Base):
     evento_id = Column(Integer, ForeignKey("outbox.id"), primary_key=True)
     auth_subject = Column(String(128), nullable=False, index=True)
     mensaje = Column(String(200), nullable=False)
+
+
+class CancelacionEvento(Base):
+    __tablename__ = "cancelaciones_evento"
+    evento_id = Column(Integer, primary_key=True)
+    estado = Column(String(20), nullable=False, default="pendiente", index=True)
+    motivo = Column(String(300), nullable=True)
+    solicitada_por = Column(String(128), nullable=False)
+    total_ordenes = Column(Integer, nullable=False, default=0)
+    completadas = Column(Integer, nullable=False, default=0)
+    errores = Column(Integer, nullable=False, default=0)
+    ventas_cerradas_en = Column(DateTime(timezone=True), nullable=True)
+    ultimo_error = Column(String(300), nullable=True)
+    legacy_pendientes = Column(Integer, nullable=False, default=0, server_default="0")
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ReembolsoEvento(Base):
+    """Un efecto por pedido/evento, compartido por ambas réplicas de Compras."""
+    __tablename__ = "reembolsos_evento"
+    __table_args__ = (
+        UniqueConstraint("orden_id", "evento_id", name="uq_reembolso_orden_evento"),
+        CheckConstraint("total_centimos >= 0", name="ck_reembolso_importe"),
+        CheckConstraint("estado IN ('pendiente','procesando','completado','error_recuperable')", name="ck_reembolso_estado"),
+    )
+    id = Column(String(32), primary_key=True)
+    orden_id = Column(String(32), ForeignKey("ordenes.id"), nullable=False, index=True)
+    evento_id = Column(Integer, nullable=False, index=True)
+    tipo = Column(String(30), nullable=False)
+    estado = Column(String(20), nullable=False, default="pendiente", index=True)
+    total_centimos = Column(Integer, nullable=False, default=0)
+    motivo = Column(String(300), nullable=False)
+    solicitado_por = Column(String(128), nullable=False)
+    intentos = Column(Integer, nullable=False, default=0)
+    ultimo_error = Column(String(300), nullable=True)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

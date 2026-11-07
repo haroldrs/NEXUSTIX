@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List
 from fastapi import Depends, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text, func
 from shared.auth_tokens import authenticated_claims, require_service_token
 
@@ -18,10 +18,22 @@ class EventSpec(BaseModel):
     nombre: str = Field(min_length=1, max_length=200)
     descripcion: str = Field(default="", max_length=4000)
     lugar: str = Field(default="", max_length=200)
+    categoria: str = Field(default="", max_length=80)
+    imagen_url: str = Field(default="", max_length=2000)
     fecha: datetime
     capacidad: int = Field(ge=1, le=100000)
     precio_centimos: int = Field(ge=0, le=1000000)
     asientos: List[SeatSpec] = Field(default_factory=list, max_length=10000)
+
+    @field_validator("imagen_url")
+    @classmethod
+    def image_url(cls, value):
+        from urllib.parse import urlsplit
+        if value:
+            parsed = urlsplit(value)
+            if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username or parsed.password:
+                raise ValueError("La imagen debe ser una URL HTTP(S) sin credenciales")
+        return value
 
 
 class EventEdit(BaseModel):
@@ -31,6 +43,14 @@ class EventEdit(BaseModel):
     lugar: str = Field(default="", max_length=200)
     fecha: datetime
     activo: bool = True
+    precio_centimos: int | None = Field(default=None, ge=0, le=1000000)
+    categoria: str | None = Field(default=None, max_length=80)
+    imagen_url: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("imagen_url")
+    @classmethod
+    def image_url(cls, value):
+        return EventSpec.image_url(value) if value is not None else value
 
 
 def actor(authorization: str | None = Header(default=None)):
@@ -44,9 +64,11 @@ def owner(event, claims):
         raise HTTPException(403, "No administras este evento")
 
 
-def serialize(event):
-    return {k: (getattr(event, k).isoformat() if k == "fecha" and event.fecha else getattr(event, k))
-            for k in ("id", "nombre", "stock", "stock_inicial", "descripcion", "lugar", "fecha", "precio_centimos", "activo")}
+def serialize(event, precio_asiento=None):
+    result = {k: (getattr(event, k).isoformat() if k in {"fecha", "cancelado_en"} and getattr(event, k) else getattr(event, k))
+            for k in ("id", "nombre", "stock", "stock_inicial", "descripcion", "lugar", "categoria", "imagen_url", "fecha", "precio_centimos", "activo", "cancelado_en", "motivo_cancelacion")}
+    result["precio_desde_centimos"] = precio_asiento if precio_asiento is not None else event.precio_centimos
+    return result
 
 
 def migrate(connection):
@@ -55,6 +77,13 @@ def migrate(connection):
                    "fecha TIMESTAMPTZ", "precio_centimos INTEGER NOT NULL DEFAULT 0",
                    "organizador VARCHAR(128)", "activo BOOLEAN NOT NULL DEFAULT true"):
         connection.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS " + column))
+    connection.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS cancelado_en TIMESTAMPTZ"))
+    connection.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS motivo_cancelacion VARCHAR(300)"))
+    connection.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS cancelado_por VARCHAR(128)"))
+    connection.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS categoria VARCHAR(80) NOT NULL DEFAULT ''"))
+    connection.execute(text("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS imagen_url VARCHAR(2000) NOT NULL DEFAULT ''"))
+    # Preservar la auditoría incluso cuando se elimina un evento sin reservas.
+    connection.execute(text("ALTER TABLE auditoria_catalogo DROP CONSTRAINT IF EXISTS auditoria_catalogo_evento_id_fkey"))
     connection.execute(text("ALTER TABLE reservas_stock ADD COLUMN IF NOT EXISTS asientos JSON"))
     connection.execute(text("ALTER TABLE reservas_stock ADD COLUMN IF NOT EXISTS total_centimos INTEGER NOT NULL DEFAULT 0"))
 
@@ -91,8 +120,10 @@ def install(app, models, get_db):
         # El catálogo legacy sembró IDs explícitos; no se depende de su secuencia.
         if db.get_bind().dialect.name == "postgresql":
             db.execute(text("SELECT pg_advisory_xact_lock(7419251040)"))
-        next_id = (db.query(func.max(Evento.id)).scalar() or 0) + 1
+        next_id = max(db.query(func.max(Evento.id)).scalar() or 0,
+                      db.query(func.max(models.AuditoriaCatalogo.evento_id)).scalar() or 0) + 1
         event = Evento(id=next_id, nombre=data.nombre.strip(), descripcion=data.descripcion, lugar=data.lugar,
+                       categoria=data.categoria, imagen_url=data.imagen_url,
                        fecha=data.fecha, precio_centimos=data.precio_centimos,
                        stock=data.capacidad, stock_inicial=data.capacidad,
                        organizador=f"{claims['iss']}|{claims['sub']}")
@@ -110,13 +141,31 @@ def install(app, models, get_db):
         if not event:
             raise HTTPException(404, "Evento no encontrado")
         owner(event, claims)
+        if event.cancelado_en is not None and data.activo:
+            raise HTTPException(409, "Un evento cancelado no puede reabrirse; cree un evento nuevo")
         if not data.nombre.strip() or data.fecha.tzinfo is None:
             raise HTTPException(422, "Nombre y fecha con zona horaria requeridos")
-        for key, value in data.model_dump().items():
+        if data.precio_centimos is not None and data.precio_centimos != event.precio_centimos and db.query(Asiento).filter_by(evento_id=event_id).first():
+            raise HTTPException(409, "Los precios por asiento son independientes; no se puede cambiar el precio general de este evento")
+        for key, value in data.model_dump(exclude_none=True).items():
             setattr(event, key, value)
         db.add(models.AuditoriaCatalogo(evento_id=event.id, actor=f"{claims['iss']}|{claims['sub']}", accion="editar"))
         db.commit()
         return serialize(event)
+
+    @app.delete("/eventos/{event_id}")
+    def delete(event_id: int, db=Depends(get_db), claims=Depends(actor)):
+        event = db.query(Evento).filter_by(id=event_id).with_for_update().first()
+        if not event:
+            raise HTTPException(404, "Evento no encontrado")
+        owner(event, claims)
+        if event.stock != event.stock_inicial or event.cancelado_en is not None or db.query(Reserva).filter_by(evento_id=event_id).first() or db.query(models.OperacionCerrada).filter_by(evento_id=event_id).first():
+            raise HTTPException(409, "El evento conserva reservas, ventas o compensaciones; use cancelación para preservar su historial")
+        db.add(models.AuditoriaCatalogo(evento_id=event_id, actor=f"{claims['iss']}|{claims['sub']}", accion="eliminar"))
+        db.query(Asiento).filter_by(evento_id=event_id).delete(synchronize_session=False)
+        db.delete(event)
+        db.commit()
+        return {"estado": "eliminado", "evento_id": event_id}
 
     @app.get("/eventos/{event_id}/asientos")
     def seats(event_id: int, db=Depends(get_db)):

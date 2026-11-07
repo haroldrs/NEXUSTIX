@@ -1,0 +1,64 @@
+.admin-hero { padding-bottom: 2rem; }
+.admin-workspace { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 2rem; max-width: 1320px; padding: 1rem 2rem 4rem; margin: auto; align-items: start; }
+.admin-navigation { display: flex; flex-direction: column; gap: .3rem; position: sticky; top: 100px; padding: .8rem; background: #edf2eb; border-radius: 16px; }
+.admin-navigation button { padding: .8rem .85rem; text-align: left; border: 0; border-radius: 9px; background: transparent; color: #42594c; font: inherit; font-size: .87rem; cursor: pointer; }
+.admin-navigation button:hover { background: #dfe8df; }
+.admin-navigation button.active { color: #fff; background: #173e30; font-weight: 700; }
+.admin-nav-label { font-size: .61rem; letter-spacing: .13em; padding: 1.1rem .85rem .4rem; color: #586c60; }
+.admin-main { min-width: 0; }
+.admin-panel { display: grid; gap: 1.2rem; }
+.admin-panel[hidden], .admin-panel [hidden] { display: none !important; }
+.admin-panel .section-heading { margin: 0; gap: 1rem; flex-wrap: wrap; }
+.admin-panel h2 { font-size: clamp(1.5rem, 3vw, 2.3rem); }
+.admin-panel h3 { margin: 0 0 1rem; }
+.admin-panel .workspace-card { padding: 1.5rem; min-width: 0; }
+.admin-form { display: grid; gap: 1rem; }
+.admin-form-grid, .admin-two-columns, .admin-db-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.admin-form label, .admin-panel > label { display: grid; gap: .4rem; font-size: .82rem; font-weight: 600; }
+.admin-form input, .admin-form select, .admin-form textarea, .admin-panel > label input, .admin-panel > label select { width: 100%; box-sizing: border-box; min-width: 0; padding: .7rem .8rem; border: 1px solid #ccd8cd; border-radius: 7px; background: white; color: #173e30; font: inherit; }
+.admin-form textarea { resize: vertical; }
+.admin-form > button { justify-self: start; }
+.admin-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; }
+.admin-stat { background: white; border: 1px solid #dce4db; border-radius: 12px; padding: 1.1rem; }
+.admin-stat strong { display: block; font-size: 1.8rem; color: #173e30; }
+.admin-stat span, .admin-stat small { display: block; color: #627468; font-size: .8rem; margin-top: .2rem; }
+.admin-row { gap: 1rem; flex-wrap: wrap; }
+.admin-row-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.admin-row-actions .button { font-size: .75rem; padding: .5rem .65rem; }
+.admin-panel pre { max-height: 450px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #f4f6f2; padding: 1rem; border-radius: 8px; font-size: .72rem; }
+.admin-panel .service-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.admin-panel .service-card { padding: 1.1rem; min-width: 0; }
+.admin-panel .service-card-head { flex-wrap: wrap; gap: .5rem; }
+.admin-panel .service-card p { margin: .65rem 0; }
+.admin-panel .service-card small { display: block; overflow-wrap: anywhere; line-height: 1.55; }
+.admin-panel .state-desconocido, .admin-panel .state-unknown { border-color: #cad1c9; }
+.admin-panel .state-degradado, .admin-panel .state-degraded { border-color: #d9b868; }
+.admin-panel .state-caido, .admin-panel .state-unavailable { border-color: #cb8179; }
+.admin-panel .state-saludable, .admin-panel .state-healthy { border-color: #84ad91; }
+.infrastructure-map { display: flex; flex-wrap: wrap; gap: .75rem; }
+.infrastructure-edge { flex: 1 1 230px; font-size: .8rem; padding: .8rem 1rem; background: #edf2eb; border-radius: 8px; overflow-wrap: anywhere; }
+.node-projection { margin: 1rem 0; padding: 1rem; border: 1px solid #ccd8cd; border-radius: 8px; }
+.node-projection summary { cursor: pointer; font-weight: 700; }
+#node-infrastructure a { overflow-wrap: anywhere; }
+.admin-timeline { display: grid; gap: 1rem; }
+.admin-timeline-entry { border-left: 3px solid #b4c8b4; padding: .3rem 0 .3rem 1rem; overflow-wrap: anywhere; }
+.admin-timeline-entry h3 { font-size: 1rem; margin: .3rem 0; }
+.admin-timeline-entry time, .admin-timeline-entry small { font-size: .76rem; color: #627468; display: block; }
+.admin-timeline-entry p { margin: .5rem 0; font-size: .85rem; }
+.admin-facts { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr); gap: .45rem .8rem; margin: .8rem 0; font-size: .82rem; }
+.admin-facts dt { color: #607065; }
+.admin-facts dd { margin: 0; overflow-wrap: anywhere; }
+.scenario-concepts { display: flex; flex-wrap: wrap; gap: .45rem; margin: .8rem 0; }
+.scenario-concepts span { border-radius: 20px; padding: .3rem .6rem; background: #eaf0e5; color: #315742; font-size: .73rem; }
+.admin-result-state { display: inline-block; background: #ecf0e6; color: #3c5943; border-radius: 20px; padding: .25rem .6rem; font-size: .72rem; }
+.admin-filter { max-width: 280px; }
+.admin-panel table { font-size: .77rem; }
+.admin-panel td { overflow-wrap: anywhere; max-width: 260px; }
+.admin-panel .field-help { line-height: 1.65; }
+.admin-panel progress { width: 100%; height: 8px; accent-color: #315b42; }
+#evidence-report { overflow-wrap: anywhere; }
+#evidence-report h3 { margin-top: 1.5rem; }
+#evidence-report p { white-space: pre-wrap; }
+@media (max-width: 1000px) { .admin-workspace { grid-template-columns: 190px minmax(0, 1fr); padding-left: 1rem; padding-right: 1rem; gap: 1rem; } .admin-two-columns, .admin-db-grid { grid-template-columns: 1fr; } }
+@media (max-width: 700px) { .admin-workspace { display: block; } .admin-navigation { position: static; flex-direction: row; overflow-x: auto; margin-bottom: 1.5rem; border-radius: 10px; } .admin-navigation button { flex-shrink: 0; } .admin-nav-label { display: none; } .admin-form-grid { grid-template-columns: 1fr; } .admin-panel .workspace-card { padding: 1rem; } }
+@media print { body.admin-print > :not(main), body.admin-print main > :not(#view-admin), body.admin-print .admin-hero, body.admin-print .admin-navigation, body.admin-print .site-footer, body.admin-print .admin-main > :not([data-admin-panel="evidence"]), body.admin-print [data-admin-panel="evidence"] > :not(#evidence-report), body.admin-print #evidence-report button { display: none !important; } body.admin-print #view-admin, body.admin-print .admin-workspace, body.admin-print [data-admin-panel="evidence"], body.admin-print #evidence-report { display: block !important; padding: 0; margin: 0; border: 0; width: 100%; background: white; } body.admin-print #evidence-report pre { max-height: none; overflow: visible; font-size: 9px; } }

@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="admin.css" />
 </head>
 <body>
   <header class="site-header">
@@ -18,14 +19,15 @@
     </a>
     <nav class="main-nav" aria-label="Navegación principal">
       <button class="nav-link active" data-view="comprar">Descubrir</button>
+      <button class="nav-link" data-view="mis-entradas">Mis entradas</button>
       <button class="nav-link" data-view="admin">Administración</button>
-      <button class="nav-link" data-view="observabilidad">Observabilidad</button>
     </nav>
     <div class="account-controls"><span id="auth-status" class="muted">Sesión no iniciada</span><button class="button button-outline" id="auth-open">Ingresar / registrarse</button><button class="button button-outline" id="auth-logout" hidden>Cerrar sesión</button></div>
     <a class="header-cta" href="#eventos" data-scroll-events>Ver eventos <span aria-hidden="true">↗</span></a>
   </header>
 
   <main>
+    <div id="global-notice" class="notice global-notice" role="status" aria-live="polite"></div>
     <section id="view-comprar" class="view active" aria-labelledby="hero-title">
       <div class="hero">
         <div class="hero-copy">
@@ -48,77 +50,153 @@
           <div><p class="eyebrow">AGENDA NEXUSTIX</p><h2>Próximos eventos</h2><p class="section-note">Disponibilidad consultada al servicio de Eventos.</p></div>
           <button class="button button-outline" id="refresh-events">Actualizar catálogo <span>↻</span></button>
         </div>
+        <div class="catalog-tools">
+          <label class="catalog-search">Buscar por nombre<input id="event-search" type="search" placeholder="Tu próximo concierto…" /></label>
+          <label>Categoría<select id="event-category"><option value="">Todas</option></select></label>
+          <label>Desde<input id="event-date" type="date" /></label>
+          <label>Estado<select id="event-filter"><option value="all">Todos</option><option value="disponible">Disponible</option><option value="agotado">Agotado</option><option value="cancelado">Cancelado</option><option value="finalizado">Finalizado</option></select></label>
+          <label>Ordenar<select id="event-sort"><option value="fecha">Fecha próxima</option><option value="precio-asc">Menor precio</option><option value="precio-desc">Mayor precio</option></select></label>
+        </div>
         <div id="catalog-status" class="notice" role="status" aria-live="polite">Consultando eventos…</div>
         <div class="event-grid" id="event-grid" aria-live="polite"></div>
-      </section>
-
-      <section class="content-section purchase-section" id="compra">
-        <div class="purchase-intro"><p class="eyebrow">RESERVA TU LUGAR</p><h2>Unos pasos<br />y estás <em>dentro.</em></h2><p>La compra se valida con los servicios disponibles y el stock se reserva en Eventos.</p><div class="flow-note"><span class="flow-number">01</span><span>Selecciona el evento y la cantidad</span><span class="flow-number">02</span><span>El backend valida y procesa la compra</span></div></div>
-        <form id="purchase-form" class="purchase-form">
-          <div class="form-heading"><div><p class="eyebrow">COMPRA DE ENTRADAS</p><h3>Completa tu solicitud</h3></div><span class="secure-mark">Solicitud vía API</span></div>
-          <p class="field-help">Inicia sesión para que la compra quede asociada a tu cuenta.</p>
-          <label for="purchase-event">Evento</label>
-          <select id="purchase-event" name="evento_id" required><option value="">Cargando catálogo…</option></select>
-          <label for="purchase-quantity">Cantidad</label>
-          <div class="quantity-wrap"><input id="purchase-quantity" name="cantidad" type="number" min="1" max="1000" value="1" required /><span>entradas</span></div>
-          <div id="order-options" hidden><label>Asientos (si el evento es numerado)</label><div id="seat-options"></div><button type="button" class="button button-outline" id="add-cart">Añadir al pedido grupal</button><p id="cart-summary"></p></div>
-          <button class="button button-accent" type="submit" id="purchase-submit">Continuar con la compra <span>→</span></button>
-          <div id="purchase-result" class="result-box" role="status" aria-live="polite"></div>
-          <p class="disclaimer">El resultado refleja la respuesta del backend. Un timeout puede dejar el resultado pendiente de verificación.</p>
-          <div class="history-note"><span class="history-icon">↗</span><div><strong>Mis compras</strong><div id="my-purchases" class="admin-list">Inicia sesión para consultar tu historial.</div></div></div>
-        </form>
-      </section>
-      <section class="content-section" id="checkout-panel" hidden>
-        <div class="section-heading"><h2>Mis pedidos y entradas</h2><button type="button" class="button button-outline" id="refresh-orders">Actualizar</button></div>
-        <p id="order-notice" class="notice" role="status"></p><div id="orders-list" class="admin-list"></div>
-        <div id="tickets-list" class="event-grid"></div><div id="notifications-list" class="admin-list"></div>
+        <button class="button button-outline load-more" id="events-more" hidden>Ver más eventos</button>
       </section>
       <footer class="site-footer"><span>NEXUSTIX</span><span>Encuentra tu próximo momento.</span><button data-view="admin">Área de administración</button></footer>
     </section>
 
-    <section id="view-admin" class="view" aria-labelledby="admin-title">
-      <div class="workspace-hero"><p class="eyebrow">GESTIÓN DE PLATAFORMA</p><h1 id="admin-title">Administración</h1><p>Consulta el catálogo y las ventas disponibles en las APIs actuales.</p><div class="notice notice-warning">Acceso restringido por el backend a cuentas administradoras autenticadas.</div></div>
-      <div class="content-section admin-grid">
-        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">INVENTARIO</p><h2>Eventos y stock</h2></div><button class="button button-outline" id="admin-refresh-events">Actualizar</button></div><div id="admin-events" class="admin-list"><p class="muted">Cargando…</p></div><p class="field-help">Los organizadores pueden crear eventos con admisión general o asientos por zona. Las reservas conservan el precio de la selección.</p></article>
-        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">ACTIVIDAD COMERCIAL</p><h2>Ventas registradas</h2></div><button class="button button-outline" id="admin-refresh-sales">Actualizar</button></div><div id="admin-sales" class="table-scroll"><p class="muted">Cargando…</p></div><p class="field-help">Los compradores pueden cancelar o reembolsar sus pedidos sin entradas utilizadas desde Mis pedidos.</p></article>
+    <section id="view-evento" class="view" aria-labelledby="detail-title">
+      <div class="content-section detail-page">
+        <button class="button button-outline" data-view="comprar">← Volver al catálogo</button>
+        <p id="detail-status" class="notice" role="status"></p>
+        <div class="detail-layout">
+          <article id="event-detail" class="detail-card" aria-live="polite"><h1 id="detail-title">Detalle del evento</h1></article>
+          <form id="purchase-form" class="purchase-form detail-checkout">
+            <p class="eyebrow">ELIGE TUS ENTRADAS</p><h2>Tu lugar está aquí.</h2>
+            <ol class="checkout-steps"><li class="active">1 · Selección</li><li>2 · Confirmación</li><li>3 · Resultado</li></ol>
+            <input id="purchase-event" name="evento_id" type="hidden" />
+            <label for="purchase-quantity">Cantidad</label>
+            <div class="quantity-wrap"><input id="purchase-quantity" name="cantidad" type="number" min="1" max="1000" value="1" required /><span>entradas</span></div>
+            <fieldset id="seat-fieldset"><legend>Tipo de entrada / asientos</legend><div id="seat-options" aria-live="polite">Consulta un evento para ver sus entradas.</div></fieldset>
+            <div id="order-options" hidden>
+              <label for="purchase-mode">Tipo de compra</label><select id="purchase-mode"><option value="individual">Este evento</option><option value="grupal">Pedido grupal · varios eventos</option></select>
+              <div id="group-options" hidden><button type="button" class="button button-outline" id="add-cart">Añadir esta selección al grupo</button><div id="cart-summary" aria-live="polite"></div><button class="text-button" type="button" data-view="comprar">Añadir otro evento →</button></div>
+            </div>
+            <div id="purchase-summary" class="purchase-summary" aria-live="polite"></div>
+            <p id="checkout-mode-note" class="field-help"></p>
+            <button class="button button-outline" id="checkout-reconnect" type="button" hidden>Reintentar conexión</button>
+            <button class="button button-accent" type="submit" id="purchase-submit" disabled>Revisar compra →</button>
+            <button class="button button-outline" type="button" id="purchase-new" hidden>Iniciar otra compra</button>
+            <div id="purchase-result" class="result-box" role="status" aria-live="polite"></div>
+            <button class="text-button" type="button" data-view="mis-entradas">Ver mis pedidos y entradas →</button>
+          </form>
+        </div>
       </div>
-      <div class="content-section admin-grid">
-        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">CUENTAS</p><h2>Usuarios</h2></div><button class="button button-outline" id="admin-refresh-users">Actualizar</button></div><div id="admin-users" class="admin-list"><p class="muted">Cargando…</p></div></article>
-        <article class="workspace-card"><h2>Crear o editar evento</h2><form id="event-editor" class="purchase-form">
-<label>ID para editar (vacío crea un evento)<input name="evento_id" type="number" min="1"></label><label>Nombre<input name="nombre" required maxlength="200"></label><label>Lugar<input name="lugar" maxlength="200"></label>
-<label>Fecha local<input name="fecha" type="datetime-local" required></label><label>Capacidad<input name="capacidad" type="number" min="1" max="100000" required></label>
-<label>Precio S/<input name="precio" type="number" min="0" step="0.01" required></label>
-<label>Asientos opcionales: código,zona,precio S/ (uno por línea)<textarea name="asientos" rows="3"></textarea></label>
-<button class="button button-accent">Guardar evento</button><p id="event-result" role="status"></p></form></article>
-      </div>
-      <section class="content-section admin-grid"><article class="workspace-card"><h2>Validar acceso</h2>
-<form id="access-form" class="purchase-form"><label>Evento<input name="evento_id" type="number" min="1" required></label>
-<label>Código QR<input name="qr" autocomplete="off" required></label><button class="button button-accent">Validar entrada</button><p id="access-result" role="status"></p></form></article>
-<article class="workspace-card"><h2>Asignar organizador</h2><form id="role-form" class="purchase-form"><label>ID de usuario<input name="user_id" type="number" min="1" required></label><button class="button button-outline">Asignar rol organizador</button><p id="role-result" role="status"></p></form></article></section>
-      <footer class="site-footer"><span>NEXUSTIX · ADMINISTRACIÓN</span><button data-view="comprar">Volver al portal</button></footer>
     </section>
 
-    <section id="view-observabilidad" class="view" aria-labelledby="observability-title">
-      <div class="workspace-hero"><p class="eyebrow">ESTADO OPERATIVO</p><h1 id="observability-title">Observabilidad técnica</h1><p>Estados y métricas consultados directamente a los servicios. Sin acciones de apagado, reset ni simulación.</p><div class="toolbar"><span class="refresh-label" id="last-refresh">Aún no actualizado</span><button class="button button-outline" id="refresh-observability">Actualizar ahora ↻</button></div></div>
+    <section id="view-mis-entradas" class="view" aria-labelledby="my-tickets-title">
       <div class="content-section">
-        <div class="section-heading compact"><div><p class="eyebrow">SERVICIOS</p><h2>Disponibilidad reportada</h2></div><span class="poll-note">Sondeo cada 10 segundos</span></div>
-        <div id="service-grid" class="service-grid"><p class="muted">Consultando servicios…</p></div>
+        <div class="section-heading"><div><p class="eyebrow">TUS EXPERIENCIAS</p><h1 id="my-tickets-title">Mis pedidos y entradas</h1></div><button type="button" class="button button-outline" id="refresh-orders">Actualizar</button></div>
+        <p id="order-notice" class="notice" role="status"></p>
+        <div id="checkout-panel"><div id="orders-list" class="orders-grid"></div><h2>Entradas QR</h2><div id="tickets-list" class="event-grid"></div><div id="notifications-list" class="notice" aria-live="polite"></div></div>
+        <details class="purchase-history"><summary>Historial de compras</summary><div id="my-purchases" class="admin-list">Inicia sesión para consultar tu historial.</div></details>
       </div>
-      <div class="content-section observability-grid">
-        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">COMPRAS</p><h2>Métricas por instancia</h2></div></div><div id="replica-metrics" class="metrics-grid"><p class="muted">Sin datos todavía.</p></div></article>
-        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">INTEGRIDAD</p><h2>Auditoría de stock</h2></div><button class="button button-outline" id="refresh-audit">Consultar</button></div><div id="audit-result" class="audit-result"><p class="muted">La auditoría aún no se ha consultado.</p></div></article>
-      </div>
-      <div class="content-section observability-grid">
-        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">RECUPERACIÓN</p><h2>Reservas pendientes</h2></div></div><div id="pending-status" class="notice">No consultado. La auditoría obtiene las reservas pendientes si Eventos está disponible.</div></article>
-        <article class="workspace-card"><div class="section-heading compact"><div><p class="eyebrow">BITÁCORA</p><h2>Journal de Compras</h2><span id="journal-count" class="pill">—</span></div><button class="button button-outline" id="refresh-journal">Actualizar</button></div><div id="journal-list" class="journal-list"><p class="muted">Sin datos todavía.</p></div></article>
-      </div>
-      <section class="content-section"><h2>Pedidos y PostgreSQL</h2><button class="button button-outline" id="refresh-distributed">Consultar estado</button><pre id="distributed-health">Sin consultar</pre></section>
-      <footer class="site-footer"><span>NEXUSTIX · OBSERVABILIDAD</span><button data-view="comprar">Volver al portal</button></footer>
     </section>
+
+    <section id="view-admin" class="view" aria-labelledby="admin-title">
+      <div class="workspace-hero admin-hero"><p class="eyebrow">CENTRO DE CONTROL</p><h1 id="admin-title">Administración</h1><p>Operación comercial, estado distribuido y evidencias en un solo lugar.</p><span id="admin-session-note" class="pill">Solo administradores autorizados</span></div>
+      <div class="admin-workspace">
+        <nav class="admin-navigation" aria-label="Secciones de administración">
+          <button data-admin-section="summary" class="active" aria-current="page">Resumen general</button>
+          <button data-admin-section="events">Eventos</button><button data-admin-section="sales">Ventas y entradas</button>
+          <button data-admin-section="refunds">Reembolsos</button><button data-admin-section="users">Usuarios y roles</button>
+          <span class="admin-nav-label">SISTEMAS DISTRIBUIDOS</span>
+          <button data-admin-section="services">Microservicios y salud</button><button data-admin-section="databases">PostgreSQL y persistencia</button>
+          <button data-admin-section="observability">Observabilidad</button><button data-admin-section="lab">Laboratorio de Resiliencia</button>
+          <button data-admin-section="incidents">Historial de incidentes</button><button data-admin-section="evidence">Evidencias de demostración</button>
+        </nav>
+        <div class="admin-main">
+          <p id="admin-global-notice" class="notice" role="status" aria-live="polite" hidden></p>
+          <section class="admin-panel" data-admin-panel="summary" aria-labelledby="admin-summary-title">
+            <div class="section-heading"><div><p class="eyebrow">VISTA GENERAL</p><h2 id="admin-summary-title">Estado de la plataforma</h2></div><button class="button button-outline" id="admin-refresh-summary">Actualizar</button></div>
+            <div id="admin-summary" class="admin-stat-grid"><p class="muted">Selecciona Actualizar para consultar el estado.</p></div>
+            <article class="workspace-card"><h3>Alcance de la infraestructura</h3><div id="admin-limitations" class="notice">Sin consultar.</div><p class="field-help">La disponibilidad refleja comprobaciones HTTP y PostgreSQL. Una falta de respuesta no identifica por sí sola una caída de proceso, contenedor o equipo.</p></article>
+          </section>
+          <section class="admin-panel" data-admin-panel="events" hidden aria-labelledby="admin-events-title">
+            <div class="section-heading"><div><p class="eyebrow">CATÁLOGO E INVENTARIO</p><h2 id="admin-events-title">Eventos</h2></div><button class="button button-outline" id="admin-refresh-events">Actualizar</button></div>
+            <div id="admin-events" class="admin-list"></div>
+            <article class="workspace-card"><div class="section-heading compact"><h3 id="event-editor-title">Crear evento</h3><button class="button button-outline" id="event-editor-reset" type="button">Nuevo evento</button></div>
+              <form id="event-editor" class="admin-form"><input name="evento_id" type="hidden"><div class="admin-form-grid">
+                <label>Nombre<input name="nombre" required maxlength="200"></label><label>Lugar<input name="lugar" maxlength="200"></label>
+                <label>Fecha y hora local<input name="fecha" type="datetime-local" required></label><label>Categoría<input name="categoria" maxlength="80" placeholder="Concierto, teatro…"></label>
+                <label>Capacidad inicial<input name="capacidad" type="number" min="1" max="100000" required></label><label>Precio general S/<input name="precio" type="number" min="0" max="10000" step="0.01" required></label>
+              </div><label>Descripción<textarea name="descripcion" rows="3" maxlength="4000"></textarea></label><label>Imagen (URL HTTPS)<input name="imagen_url" type="url" maxlength="1000" placeholder="https://…"></label>
+              <label>Asientos opcionales al crear: código,zona,precio S/ (uno por línea)<textarea name="asientos" rows="3" placeholder="A1,Preferencial,120.00"></textarea></label>
+              <p class="field-help">Editar el precio general solo afecta nuevas reservas. Los asientos, la capacidad original y las compras anteriores se conservan. La edición no reactiva un evento cancelado.</p>
+              <button class="button button-accent" type="submit">Guardar evento</button><p id="event-result" role="status"></p>
+              </form>
+            </article>
+          </section>
+          <section class="admin-panel" data-admin-panel="sales" hidden aria-labelledby="admin-sales-title">
+            <div class="section-heading"><div><p class="eyebrow">ACTIVIDAD COMERCIAL</p><h2 id="admin-sales-title">Ventas y entradas</h2></div><button class="button button-outline" id="admin-refresh-sales">Actualizar</button></div>
+            <label class="admin-filter">Filtrar por ID de evento<input id="admin-sales-event" type="number" min="1" placeholder="Todos los eventos"></label>
+            <article class="workspace-card"><h3>Compras registradas</h3><div id="admin-sales" class="table-scroll"></div></article>
+            <article class="workspace-card"><h3>Pedidos</h3><div id="admin-orders" class="table-scroll"></div></article>
+            <article class="workspace-card"><h3>Entradas emitidas</h3><div id="admin-tickets" class="table-scroll"></div><p class="field-help">El listado administrativo no revela códigos QR ni credenciales de acceso.</p></article>
+            <article class="workspace-card"><h3>Validar acceso</h3><form id="access-form" class="admin-form"><div class="admin-form-grid"><label>ID de evento<input name="evento_id" type="number" min="1" required></label><label>Código QR presentado<input name="qr" autocomplete="off" required maxlength="4096"></label></div><button class="button button-accent" type="submit">Validar entrada</button><p id="access-result" role="status"></p></form></article>
+          </section>
+          <section class="admin-panel" data-admin-panel="refunds" hidden aria-labelledby="admin-refunds-title">
+            <div class="section-heading"><div><p class="eyebrow">COMPENSACIONES DURABLES</p><h2 id="admin-refunds-title">Cancelaciones y reembolsos</h2></div><button class="button button-outline" id="admin-refresh-refunds">Actualizar</button></div>
+            <p class="section-note">El cierre de ventas se conserva mientras Compras procesa compensaciones. Un error recuperable requiere consultar el progreso o reintentar la misma cancelación.</p>
+            <article class="workspace-card"><h3>Progreso por evento</h3><div id="admin-cancellations"></div></article><article class="workspace-card"><h3>Reembolsos simulados</h3><div id="admin-refunds" class="table-scroll"></div></article>
+          </section>
+          <section class="admin-panel" data-admin-panel="users" hidden aria-labelledby="admin-users-title">
+            <div class="section-heading"><div><p class="eyebrow">CONTROL DE ACCESO</p><h2 id="admin-users-title">Usuarios y roles</h2></div><button class="button button-outline" id="admin-refresh-users">Actualizar</button></div><div id="admin-users" class="admin-list"></div>
+            <article class="workspace-card"><h3>Asignar organizador</h3><form id="role-form" class="admin-form"><label>ID de usuario<input name="user_id" type="number" min="1" required></label><p class="field-help">La asignación habilita las capacidades existentes de organización. El usuario deberá iniciar sesión de nuevo.</p><button class="button button-outline" type="submit">Asignar rol organizador</button><p id="role-result" role="status"></p></form></article>
+          </section>
+          <section class="admin-panel" data-admin-panel="services" hidden aria-labelledby="admin-services-title">
+            <div class="section-heading"><div><p class="eyebrow">ARQUITECTURA REAL</p><h2 id="admin-services-title">Microservicios y salud</h2></div><button class="button button-outline" id="admin-refresh-services">Consultar estado</button></div>
+            <p id="service-check-time" class="field-help">Sin consultar.</p><div id="service-grid" class="service-grid"></div><div id="infrastructure-map" class="infrastructure-map"></div><p class="field-help">Solo se consultan destinos configurados en el servidor. Los componentes sin comprobación aparecen como desconocidos; las réplicas no configuradas no acreditan alta disponibilidad.</p>
+          </section>
+          <section class="admin-panel" data-admin-panel="databases" hidden aria-labelledby="admin-databases-title">
+            <div class="section-heading"><div><p class="eyebrow">PERSISTENCIA Y RECUPERACIÓN</p><h2 id="admin-databases-title">PostgreSQL</h2></div><button class="button button-outline" id="refresh-distributed">Consultar estado</button></div><div id="database-cards" class="admin-db-grid"></div>
+            <div id="legacy-lan-warning" class="notice notice-warning">En el despliegue LAN antiguo de tres PC, PostgreSQL está concentrado en PC2 sin replicación entre las tres máquinas. La pérdida de PC2 afecta la persistencia aunque sobrevivan réplicas de aplicaciones.</div><div id="node-database-assignments"></div><p class="field-help">Las consultas son de solo lectura. Una posición WAL o un checkpoint no demuestra por sí solo un failover ni redundancia funcional.</p><details class="workspace-card"><summary>Detalle técnico de la consulta</summary><pre id="distributed-health">Sin consultar.</pre></details>
+          </section>
+          <section class="admin-panel" data-admin-panel="observability" hidden aria-labelledby="observability-title">
+            <div class="section-heading"><div><p class="eyebrow">RECORRIDO DE OPERACIONES</p><h2 id="observability-title">Observabilidad</h2></div><button class="button button-outline" id="refresh-observability">Actualizar métricas</button></div><p id="last-refresh" class="field-help">Aún no actualizado.</p>
+            <div id="replica-metrics" class="metrics-grid"></div>
+            <article class="workspace-card"><h3>Seguir una compra o pedido</h3><form id="trace-form" class="admin-form"><label>ID de pedido, compra u operación<input name="identificador" required maxlength="128" placeholder="Identificador de la operación"></label><button type="submit" class="button button-outline">Consultar recorrido</button></form><div id="trace-result" class="admin-timeline"><p class="muted">Consulta una operación para ver únicamente los hitos registrados.</p></div></article>
+            <div class="admin-two-columns"><article class="workspace-card"><div class="section-heading compact"><h3>Consistencia de inventario</h3><button class="button button-outline" id="refresh-audit">Consultar</button></div><div id="audit-result" class="audit-result">Sin consultar.</div><div id="pending-status" class="notice">Sin consultar.</div></article>
+            <article class="workspace-card"><div class="section-heading compact"><h3>Journal de Compras <span id="journal-count" class="pill">—</span></h3><button class="button button-outline" id="refresh-journal">Actualizar</button></div><div id="journal-list" class="journal-list"></div></article></div>
+          </section>
+          <section class="admin-panel" data-admin-panel="lab" id="resilience-lab" hidden aria-labelledby="lab-title">
+            <div class="section-heading"><div><p class="eyebrow">SISTEMAS OPERATIVOS II</p><h2 id="lab-title">Laboratorio de Resiliencia</h2></div><button class="button button-outline" id="lab-refresh">Consultar escenario y estado</button></div>
+            <div class="notice">Las interrupciones se realizan manualmente en un entorno aislado y autorizado. Los controles de esta vista consultan estado y guardan evidencias; no operan contenedores ni bases de datos.</div>
+            <div id="node-infrastructure" aria-live="polite"><p class="field-help">Consulta el estado para cargar el inventario de nodos, cuando esté configurado.</p></div>
+            <label>Escenario<select id="lab-scenario"><option value="">Cargando escenarios…</option></select></label><article id="lab-scenario-detail" class="workspace-card"></article><div id="lab-status" class="service-grid"></div>
+            <form id="lab-report-form" class="workspace-card admin-form"><h3>Registrar una demostración</h3><p class="field-help">Captura el estado inicial antes de la acción manual. Completa tus observaciones y captura el estado final para generar un reporte persistente. Las capturas registran la hora del servidor.</p><button type="button" id="lab-capture-initial" class="button button-outline">Capturar estado inicial</button><p id="lab-initial-status" class="field-help">Sin captura inicial en esta sesión.</p>
+              <label>Acciones realizadas<textarea name="acciones" rows="3" maxlength="1500" placeholder="Describe únicamente acciones que realizaste; omite credenciales."></textarea></label><label>Comportamiento observado<textarea name="observado" rows="3" required maxlength="2000"></textarea></label><label>Conclusión y limitaciones<textarea name="conclusion" rows="3" required maxlength="1500" placeholder="Distingue lo observado de lo que no se pudo demostrar."></textarea></label>
+              <button type="submit" class="button button-accent">Capturar estado final y guardar reporte</button><p id="lab-report-status" role="status"></p>
+            </form><details class="workspace-card"><summary>Última captura técnica</summary><p class="field-help">Si Compras puede responder pero su base no permite guardar evidencias, exporta la última consulta recibida. La fecha identifica su antigüedad; no certifica el estado actual.</p><button type="button" class="button button-outline" id="lab-export-observation">Exportar consulta sin guardarla en la base</button><pre id="lab-evidence">Sin consultar.</pre></details>
+          </section>
+          <section class="admin-panel" data-admin-panel="incidents" hidden aria-labelledby="admin-incidents-title">
+            <div class="section-heading"><div><p class="eyebrow">DETECCIÓN Y RECUPERACIÓN</p><h2 id="admin-incidents-title">Historial de incidentes</h2></div><button class="button button-outline" id="admin-refresh-incidents">Actualizar</button></div><p id="incident-scope" class="field-help"></p><div id="incident-list" class="admin-timeline"></div>
+          </section>
+          <section class="admin-panel" data-admin-panel="evidence" hidden aria-labelledby="admin-evidence-title">
+            <div class="section-heading"><div><p class="eyebrow">PRESENTACIÓN Y TRAZABILIDAD</p><h2 id="admin-evidence-title">Evidencias de demostración</h2></div><button class="button button-outline" id="admin-refresh-evidence">Actualizar</button></div>
+            <article class="workspace-card"><h3>Importar evidencia externa</h3><p class="field-help">Importa un reporte JSON exportado por NEXUSTIX. Se registra como evidencia aportada, no verificada por el sistema. El servidor filtra campos sensibles.</p><form id="evidence-import-form" class="admin-form"><label>Archivo JSON<input id="evidence-import-file" type="file" accept="application/json,.json" required></label><button class="button button-outline" type="submit">Importar reporte</button><p id="evidence-import-status" role="status"></p></form></article>
+            <div id="evidence-list" class="admin-list"></div><article id="evidence-report" class="workspace-card" hidden></article>
+          </section>
+        </div>
+      </div><footer class="site-footer"><span>NEXUSTIX · ADMINISTRACIÓN</span><button data-view="comprar">Volver al portal</button></footer>
+    </section>
+    <section id="view-observabilidad" class="view" hidden aria-label="La observabilidad se integra en Administración"></section>
   </main>
   <dialog id="auth-dialog" class="auth-dialog"><form method="dialog"><button class="dialog-close" aria-label="Cerrar">×</button></form><p class="eyebrow">CUENTA NEXUSTIX</p><h2 id="auth-title">Inicia sesión</h2><div class="auth-tabs"><button type="button" data-auth-mode="login" class="active">Ingresar</button><button type="button" data-auth-mode="register">Crear cuenta</button></div><form id="auth-form"><label for="auth-name" id="auth-name-label" hidden>Nombre</label><input id="auth-name" name="nombre" maxlength="160" autocomplete="name" hidden /><label for="auth-email">Correo electrónico</label><input id="auth-email" name="email" type="email" required autocomplete="email" /><label for="auth-password">Contraseña</label><input id="auth-password" name="password" type="password" required minlength="12" maxlength="256" autocomplete="current-password" /><button class="button button-accent" type="submit">Continuar</button><div id="auth-result" class="notice" role="status" aria-live="polite"></div></form></dialog>
+  <dialog id="purchase-review" class="auth-dialog purchase-review" aria-labelledby="review-title"><form method="dialog"><button class="dialog-close" aria-label="Cerrar confirmación">×</button></form><p class="eyebrow">REVISA TU SELECCIÓN</p><h2 id="review-title">Confirmar solicitud</h2><div id="review-content"></div><button type="button" class="button button-accent" id="review-confirm">Confirmar y enviar</button><form method="dialog"><button class="button button-outline">Volver a editar</button></form></dialog>
   <script src="config.js"></script>
   <script src="app.js"></script>
+  <script src="catalog.js"></script>
   <script src="checkout.js"></script>
+  <script src="admin.js"></script>
 </body>
 </html>

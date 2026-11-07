@@ -43,11 +43,13 @@ id_ed25519*
 *-database-url*
 eventos-service-token
 replication-password
+*-replication-password
 admin-password
 frontend-config.js
 *-admin-password
 despliegue-pc/generated/
 despliegue-pc/config/
+despliegue-nodos/generated/
 fencing.json
 primary.FENCED
 

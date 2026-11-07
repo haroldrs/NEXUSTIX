@@ -10,6 +10,11 @@ Este repositorio se prepara para revisión antes de publicarlo en GitHub privado
 revisión explícita: [hallazgos](docs/HALLAZGOS_PUBLICACION.md).
 [Entrega y límites de publicación/LAN](docs/PUBLICACION_Y_LAN.md).
 
+Nuevo despliegue configurable para **1, 2, 3 o más nodos**:
+[inventario, preparación y comandos mínimos](despliegue-nodos/README.md).
+Ruta independiente, sin ejecutar ni probar en esta entrega; prepara redundancia
+y recuperación manual, no acredita alta disponibilidad física.
+
 | Estado | Alcance |
 |---|---|
 | Implementado y probado localmente | Compras, concurrencia, QR e inventario; réplicas de Compras por Nginx; WAL, promoción, reintegración y PITR, con los límites de la evidencia |
@@ -44,6 +49,7 @@ cambiarla vuelve a abrir el hallazgo. No constituye una certificación de ausenc
 | `frontend/`, `compras_lb/` | Portal y balanceador |
 | `postgres/`, `docker-compose*.yml` | Imágenes y topologías locales separadas |
 | `despliegue-pc/` | Compose PC 1/2/3, HAProxy, secretos y operación protegida |
+| `despliegue-nodos/` | Inventario YAML, Compose por nodo, gateways redundantes y PostgreSQL primario/standbys |
 | `despliegue-vm/` | Infraestructura para invitados VM; no ejecutar sus scripts en PC físicas |
 | `tests/test_*.py`, `tests/vm/` | Pruebas locales seleccionadas en `pytest.ini`; excepción: restauración Docker aislada |
 | `tests/postgres/` | Integración y recuperación con PostgreSQL desechable, opt-in |

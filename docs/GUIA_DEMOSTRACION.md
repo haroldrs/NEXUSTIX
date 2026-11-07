@@ -1,5 +1,10 @@
 # Demostración del checkout distribuido — Fedora
 
+La interfaz actual reúne observabilidad y laboratorio dentro de **Administración**.
+Consulta [Portal y operaciones](EVOLUCION_PORTAL_Y_OPERACIONES.md) para las
+migraciones preparadas, la configuración del mapa y las comprobaciones manuales
+pendientes. Ningún procedimiento de esta guía se ejecutó durante esos cambios.
+
 Usar `http://localhost:28080` del laboratorio nuevo. No necesita VMs.
 
 1. Ingresar como `lab-admin@example.com` con el secreto `admin-password` del
@@ -169,3 +174,11 @@ el entorno demo. Limitaciones: `docs/LIMITACIONES.md`.
   `python3 scripts/nx.py <entorno> auditoria --email <admin>`.
 - Tras una promoción a medias: `python3 scripts/db_ha.py pruebas status` y
   `rejoin`/`switchback`.
+# Laboratorio de Resiliencia (panel administrativo)
+
+1. Inicie sesión como administrador y abra **Administración → Laboratorio de Resiliencia**. La vista consulta los `/health` reales de Usuarios, Eventos, ambas réplicas de Compras y el balanceador; no ejecuta acciones destructivas.
+2. Para demostrar caída de una réplica de Compras, en el entorno de laboratorio ejecute `docker compose stop compras1`, actualice el laboratorio y realice una lectura o compra con una clave idempotente. Restaure con `docker compose start compras1`; el panel mostrará el retorno de la réplica y el journal/recuperación permite observar el trabajo pendiente.
+3. Usuarios y Eventos se demuestran deteniendo y restaurando sólo sus contenedores en la topología que tenga réplica real. En el `docker-compose.yml` principal no hay réplica de esos servicios: el panel lo mostrará como indisponibilidad, no como alta disponibilidad.
+4. PostgreSQL, gateway o PC completa son puntos únicos de fallo salvo que se inicie explícitamente el overlay de replicación/documentación de VM. Use los procedimientos de `despliegue-vm/` para esos casos; la aplicación sólo visualiza su evidencia.
+
+La página pública no puede detener servicios. Las cancelaciones de eventos se ejecutan desde Compras para exigir autorización administrativa y preservar el progreso de compensación.

@@ -27,6 +27,10 @@ PROTECTED = {'nexustix', 'project', 'nexustix-auth-staging', 'nexustix-distribut
 DOCKER = ['docker', '--host', 'unix:///var/run/docker.sock']
 
 
+def is_wsl():
+    return 'microsoft' in os.uname().release.lower()
+
+
 def run(args, env=None, check=True):
     result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=900)
     if check and result.returncode:
@@ -130,7 +134,9 @@ class Node:
     def env(self):
         # Compose no hereda variables arbitrarias del shell, contexto ni .env del repo.
         env={k:v for k,v in os.environ.items() if not k.startswith(('LAN_','COMPOSE_','DOCKER_'))}
-        env.update(self.cfg);env.update(LAN_BIND_IP=self.cfg['LAN_'+self.role.upper()+'_IP'],
+        # Desktop publica en Windows; su IP LAN no pertenece a la interfaz de Ubuntu.
+        bind_ip='0.0.0.0' if is_wsl() else self.cfg['LAN_'+self.role.upper()+'_IP']
+        env.update(self.cfg);env.update(LAN_BIND_IP=bind_ip,
             LAN_SECRETS_DIR=str(self.base/'secrets'),LAN_CONFIG_DIR=str(self.base))
         return env
 
@@ -163,10 +169,21 @@ class Node:
     def guard(self):
         if os.environ.get('DOCKER_HOST') or os.environ.get('DOCKER_CONTEXT'):
             raise ValueError('Quite DOCKER_HOST/DOCKER_CONTEXT; solo daemon Unix local soportado')
-        addresses=json.loads(run(['ip','-j','address','show']).stdout)
-        expected=self.env()['LAN_BIND_IP']
-        if not any(a.get('local')==expected for iface in addresses for a in iface.get('addr_info',[])):
-            raise ValueError('IP local no coincide con el rol')
+        expected=self.cfg['LAN_'+self.role.upper()+'_IP']
+        if is_wsl():
+            operating_system=run(DOCKER+['info','--format','{{.OperatingSystem}}']).stdout
+            if 'docker desktop' not in operating_system.lower():
+                raise ValueError('En WSL se requiere Docker Desktop con integración Ubuntu habilitada')
+            if not shutil.which('powershell.exe'):
+                raise ValueError('Se requiere interoperabilidad WSL con powershell.exe para verificar la IP de Windows')
+            addresses=run(['powershell.exe','-NoProfile','-NonInteractive','-Command',
+                           "$ErrorActionPreference = 'Stop'; Get-NetIPAddress -AddressFamily IPv4 | Select-Object -ExpandProperty IPAddress"]).stdout
+            if expected not in {line.strip() for line in addresses.splitlines()}:
+                raise ValueError('IP LAN del rol no coincide con Windows; no usar la IP NAT de Ubuntu WSL')
+        else:
+            addresses=json.loads(run(['ip','-j','address','show']).stdout)
+            if not any(a.get('local')==expected for iface in addresses for a in iface.get('addr_info',[])):
+                raise ValueError('IP local no coincide con el rol')
         rows=run(DOCKER+['ps','-a','--format','{{json .}}']).stdout.splitlines()
         for row in rows:
             data=json.loads(row);labels=dict(item.split('=',1) for item in data.get('Labels','').split(',') if '=' in item)
@@ -275,7 +292,7 @@ def main():
         if node.role!='pc2':raise ValueError('Bootstrap solo PC 2')
         node.compose('exec','-T','usuarios','python','bootstrap_admin.py','--email',a.email,'--password-file','/run/secrets/admin_password','--if-missing')
     elif a.command=='verify':
-        ip=node.env()['LAN_BIND_IP']
+        ip=node.cfg['LAN_'+node.role.upper()+'_IP']
         for service in ROLES[node.role]&{'usuarios','eventos','compras'}:
             value=probe(f"http://{ip}:{node.cfg['LAN_'+service.upper()+'_PORT']}/health")
             if value.get('status')!='ok':raise ValueError('API no saludable')

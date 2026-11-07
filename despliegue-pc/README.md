@@ -30,10 +30,39 @@ Docker como destinos remotos. Las redes Compose son locales por equipo.
 
 ## 1. Requisitos y datos reales
 
-Tres hosts Linux con Docker Engine y Compose v2 >= 2.20, Python >= 3.10, Git,
-OpenSSL y comando `ip`. El controlador soporta el socket local
-`/var/run/docker.sock`; no Docker remoto, rootless ni Docker Desktop/Windows
-nativo en esta versión. Confirmar SO antes de elegir este procedimiento.
+PC 1: Fedora con Docker Engine. PC 2 y PC 3: Windows con Ubuntu **WSL 2** y
+Docker Desktop, backend WSL 2 y contenedores Linux. Ejecutar `lan.py` desde
+Bash en Fedora o Ubuntu, nunca desde Python de Windows. Se requieren Compose
+v2 >= 2.20, Python >= 3.10, Git, OpenSSL y, en Fedora, el comando `ip`.
+El controlador conserva el socket local `/var/run/docker.sock`, proporcionado
+por Engine en Fedora y por la integración de Desktop en Ubuntu. No admite
+Docker remoto, rootless ni variables `DOCKER_HOST`/`DOCKER_CONTEXT` activas.
+
+En PC 2 y PC 3, comprobar desde PowerShell (solo lectura):
+
+```powershell
+wsl -l -v
+Get-NetIPAddress -AddressFamily IPv4 | Select-Object InterfaceAlias,IPAddress
+```
+
+Ubuntu debe figurar con versión 2. En Docker Desktop habilitar **Use WSL 2 based
+engine** y **Resources > WSL Integration > Ubuntu** antes del despliegue.
+Usar la integración de Desktop, sin instalar otro Docker Engine dentro de
+Ubuntu. Desde Ubuntu comprobar:
+
+```bash
+python3 --version
+git --version
+openssl version
+command -v powershell.exe
+docker --host unix:///var/run/docker.sock compose version
+docker --host unix:///var/run/docker.sock info --format '{{.OperatingSystem}}'
+```
+
+El último comando debe identificar Docker Desktop. `powershell.exe` debe estar
+disponible mediante interoperabilidad WSL: el controlador lo utiliza solo para
+leer las IP de Windows y verificar que corresponden al nodo.
+[Integración oficial Docker Desktop/WSL](https://docs.docker.com/desktop/features/wsl/).
 
 Asignar IPs RFC1918 distintas y estables con el administrador de la LAN; no
 se asigna ni se cambia ninguna IP desde estos scripts. Confirmar puertos libres,
@@ -42,17 +71,33 @@ no haya suspensión automática. El controlador rechaza hosts con proyectos
 `nexustix`, `project`, staging, laboratorio o VM existentes. Usar los otros
 hosts limpios; **no ejecutar `up` en el Fedora protegido actual**.
 
+Para `LAN_PC2_IP` y `LAN_PC3_IP` usar las IP de los adaptadores Ethernet/Wi-Fi
+de **Windows** conectados a la LAN. No usar la IP NAT de Ubuntu (`hostname -I`),
+adaptadores virtuales ni `localhost`. Las URL de DB y los backends HAProxy
+conservan esas IP de Windows. No se necesita configurar `portproxy` ni cambiar
+el modo de red de WSL para publicar puertos mediante Docker Desktop.
+[Red de Docker Desktop](https://docs.docker.com/desktop/features/networking/).
+
 Reservas orientativas, no capacidad medida: PC 1 2 CPU/4 GiB disponibles;
 PC 2/3 4 CPU/8 GiB disponibles. PC 2 necesita SSD y espacio para imágenes, tres
 bases, WAL y backups. Registrar tamaños reales y crecimiento antes de operar.
 
 Puertos predeterminados propuestos, todos configurables al preparar:
 
-| Equipo | Puertos TCP publicados en su IP LAN |
+| Equipo | Puertos TCP accesibles mediante su IP LAN |
 |---|---|
 | PC 1 | 8080 frontend; 8001 gateway Usuarios; 8002 gateway Eventos; 8005 gateway Compras; 8003 Compras 1 |
 | PC 2 | 8001 Usuarios; 8002 Eventos; 8003 Compras 2; 5432/5433/5434 bases Usuarios/Eventos/Compras |
 | PC 3 | 8001 Usuarios; 8002 Eventos |
+
+`lan.py` detecta WSL automáticamente: los Compose existentes reciben
+`LAN_BIND_IP=0.0.0.0` para que Desktop publique los puertos en Windows. En
+Fedora se conserva el enlace a la IP LAN específica del nodo. `0.0.0.0` es
+solo la dirección de escucha; nunca se usa como destino entre servicios.
+En Windows esto publica en todas las interfaces IPv4: antes de operar, debe
+existir una política autorizada de Windows Defender Firewall que limite los
+puertos a los equipos necesarios. VPN, perfil de red o firewall pueden impedir
+el acceso desde otras PC. Estos scripts no crean ni modifican esas reglas.
 
 Los navegadores necesitan PC 1:8080/8001/8002/8005. La vista diagnóstica de
 réplicas también puede usar Compras directo en PC 1/2:8003. PC 1 necesita los
@@ -67,10 +112,16 @@ IP que alcance el puerto; el filtrado por pares está pendiente de autorización
 
 Después de que el propietario publique privadamente, ejecutar en cada PC:
 
+En PC 2/3 usar la terminal **Ubuntu WSL 2** y un clon bajo `$HOME` de Ubuntu,
+no `/mnt/c` ni `/mnt/d`. Guardar también la carpeta privada del nodo fuera del
+clon, dentro del sistema de archivos Linux, para conservar permisos 0700/0600.
+El comando siguiente conserva finales de línea LF sin cambiar la configuración
+global de Git.
+
 ```bash
 read -r -p 'URL SSH real del repositorio privado: ' REPO_URL
 read -r -p 'Directorio nuevo para el clon: ' CLONE_DIR
-git clone -- "$REPO_URL" "$CLONE_DIR"
+git -c core.autocrlf=input clone -- "$REPO_URL" "$CLONE_DIR"
 cd -- "$CLONE_DIR"
 git rev-parse HEAD
 ```
@@ -85,8 +136,8 @@ Desde un clon y una terminal de operador, elegir un destino nuevo fuera de Git:
 
 ```bash
 read -r -p 'IP LAN real PC 1: ' PC1_IP
-read -r -p 'IP LAN real PC 2: ' PC2_IP
-read -r -p 'IP LAN real PC 3: ' PC3_IP
+read -r -p 'IP LAN real de Windows PC 2: ' PC2_IP
+read -r -p 'IP LAN real de Windows PC 3: ' PC3_IP
 read -r -p 'Identificador nuevo (3-25, minúsculas/dígitos/guion): ' LAN_ID
 read -r -p 'Directorio privado NUEVO fuera del repositorio: ' LAN_PACKAGE_DIR
 python3 despliegue-pc/lan.py prepare --destination "$LAN_PACKAGE_DIR" \
@@ -108,6 +159,11 @@ compartido protege contra reutilizar recursos de otra generación con igual nomb
 
 Transferencia cifrada, con destinos **inexistentes** elegidos por los responsables:
 
+El ejemplo requiere SSH previamente disponible en cada destino. WSL no instala
+ni publica un servidor SSH automáticamente. Si PC 2/3 no lo tienen, usar un
+canal cifrado autorizado y copiar la carpeta recibida al `$HOME` de Ubuntu;
+no configurar SSH, reenvíos de puertos ni firewall para seguir este ejemplo.
+
 ```bash
 read -r -p 'SSH usuario@host real de PC 1: ' PC1_SSH
 read -r -p 'Destino privado NUEVO en PC 1: ' REMOTE_PC1_DIR
@@ -122,6 +178,15 @@ scp -pr "$LAN_PACKAGE_DIR/pc3" "$PC3_SSH:$REMOTE_PC3_DIR"
 
 No repetir la copia sobre un destino existente. Verificar que el destino contiene
 `config.env` y `secrets/`, sin nivel de carpeta extra; `scp -p` conserva permisos.
+Si la transferencia pasó por Windows, restaurar permisos **solo en la carpeta
+nueva de este nodo**, ya copiada al sistema de archivos Linux:
+
+```bash
+read -r -p 'Carpeta privada NUEVA del nodo en Ubuntu, fuera del clon: ' LAN_NODE_DIR
+chmod 700 -- "$LAN_NODE_DIR" "$LAN_NODE_DIR/secrets"
+chmod 600 -- "$LAN_NODE_DIR/config.env" "$LAN_NODE_DIR"/secrets/*
+```
+
 Cada responsable declara su ruta real en su propia terminal:
 
 ```bash
@@ -143,7 +208,7 @@ Sin `--apply`, los comandos operativos muestran solo el plan. No se modifican
 redes físicas ni firewall; `up` sí crea la red bridge y volúmenes **nuevos** del
 proyecto LAN y aplica migraciones en esas bases nuevas.
 
-**Primero PC 2**, que contiene los primarios:
+**Primero PC 2 — terminal Ubuntu WSL 2**, que contiene los primarios:
 
 ```bash
 python3 despliegue-pc/lan.py up --env-file "$LAN_NODE_DIR/config.env"
@@ -159,14 +224,14 @@ un administrador una vez y no cambia cuentas existentes. Compras de PC 2 puede
 estar sana antes de que exista el gateway Eventos: `/health` verifica su DB, no
 la compra completa. No realizar compras hasta terminar PC 1.
 
-**Después PC 3**:
+**Después PC 3 — terminal Ubuntu WSL 2**:
 
 ```bash
 python3 despliegue-pc/lan.py up --env-file "$LAN_NODE_DIR/config.env" --apply
 python3 despliegue-pc/lan.py verify --env-file "$LAN_NODE_DIR/config.env" --apply
 ```
 
-**Por último PC 1**:
+**Por último PC 1 — terminal Fedora** (solo si supera la guarda de host protegido):
 
 ```bash
 python3 despliegue-pc/lan.py gateway-check --env-file "$LAN_NODE_DIR/config.env" --apply
@@ -178,6 +243,7 @@ python3 despliegue-pc/lan.py status --env-file "$LAN_NODE_DIR/config.env" --appl
 `gateway-check` inicia un contenedor efímero para `haproxy -c`; no es una prueba
 LAN. `up --wait` espera healthchecks. `verify` comprueba las API locales y en
 PC 1 también gateway/portal; no prueba cada backend remoto individualmente.
+En WSL, `verify` consulta la IP LAN de Windows, no la dirección de escucha.
 Completar con `/health` directo en PC 2 y PC 3, observando `X-Instance-ID` en las
 respuestas de Usuarios/Eventos. Abrir `http://IP_REAL_PC1:PUERTO_FRONTEND` con
 los valores elegidos, iniciar sesión, crear un evento sintético y realizar una
@@ -238,6 +304,13 @@ de eliminación en el controlador. No cambiar ID/UUID/secrets para reutilizar
 volúmenes; ante un conflicto de identidad se detiene la operación.
 
 ## Límites y siguiente fase
+
+La adaptación Fedora/WSL se verifica mediante sintaxis y renderizado de Compose;
+no acredita ejecución real en Windows ni conectividad entre las tres PC.
+En PC 2/3, Docker Desktop y Windows deben permanecer activos. Suspender Windows,
+cerrar Docker Desktop o ejecutar `wsl --shutdown` interrumpe los servicios.
+En PC 2, los datos permanecen en volúmenes del motor de Desktop: no restablecer
+Desktop a valores de fábrica ni desregistrar distribuciones para diagnosticar.
 
 PC 1 concentra portal/gateway: su pérdida interrumpe la entrada. PC 2 concentra
 todas las bases: su pérdida interrumpe todas las API aunque PC 3 siga encendida.

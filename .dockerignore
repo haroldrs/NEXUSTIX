@@ -21,6 +21,9 @@
 !despliegue-pc/
 !despliegue-pc/postgres/
 !despliegue-pc/postgres/**
+!despliegue-nodos/
+!despliegue-nodos/postgres/
+!despliegue-nodos/postgres/**
 # Exclusiones finales también dentro de los directorios admitidos.
 **/__pycache__/**
 **/.venv/**
@@ -48,6 +51,7 @@
 **/*-database-url*
 **/eventos-service-token
 **/replication-password
+**/*-replication-password
 **/admin-password
 **/*-admin-password
 **/frontend-config.js

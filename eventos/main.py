@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from threading import Lock
 
@@ -8,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from sqlalchemy import text
+from sqlalchemy import text, func, case
 from database import Base, SessionLocal, engine, get_db
 from models import Evento, ReservaStock, Asiento, OperacionCerrada
 import models
@@ -21,11 +22,8 @@ async def _lifespan(application: FastAPI):
     esperar_bd()
     db = SessionLocal()
     try:
-        if db.query(Evento).count() == 0:
-            seed = [
-                Evento(id=d["id"], nombre=d["nombre"], stock=d["stock"], stock_inicial=d["stock"])
-                for d in EVENTOS_BASE
-            ]
+        if os.getenv("NEXUSTIX_SEED_EVENTS", "1") == "1" and db.query(Evento).count() == 0:
+            seed = [Evento(**d, stock_inicial=d["stock"]) for d in EVENTOS_BASE]
             db.add_all(seed)
             db.commit()
     finally:
@@ -54,11 +52,11 @@ def require_admin(authorization: str | None = Header(default=None)):
 
 
 EVENTOS_BASE = [
-    {"id": 1, "nombre": "Concierto Rock en Trujillo", "stock": 500},
-    {"id": 2, "nombre": "Festival de Jazz", "stock": 20},
-    {"id": 3, "nombre": "Concierto Pop Lima", "stock": 300},
-    {"id": 4, "nombre": "Festival Electrónico", "stock": 250},
-    {"id": 5, "nombre": "Concierto Internacional", "stock": 400},
+    {"id": 1, "nombre": "Concierto Rock en Trujillo", "stock": 500, "descripcion": "Una noche de rock en vivo con artistas locales e invitados.", "lugar": "Club Metropolitano, Trujillo", "fecha": datetime(2027, 3, 14, 20, tzinfo=timezone.utc), "precio_centimos": 7500},
+    {"id": 2, "nombre": "Festival de Jazz", "stock": 20, "descripcion": "Un encuentro íntimo para disfrutar jazz contemporáneo y clásico.", "lugar": "Teatro Municipal, Lima", "fecha": datetime(2027, 4, 9, 19, 30, tzinfo=timezone.utc), "precio_centimos": 9500},
+    {"id": 3, "nombre": "Concierto Pop Lima", "stock": 300, "descripcion": "Los éxitos pop que marcaron una generación, en una sola noche.", "lugar": "Anfiteatro del Parque, Lima", "fecha": datetime(2027, 5, 22, 20, tzinfo=timezone.utc), "precio_centimos": 8500},
+    {"id": 4, "nombre": "Festival Electrónico", "stock": 250, "descripcion": "Sets de DJs, visuales inmersivas y una experiencia electrónica al aire libre.", "lugar": "Costa Verde, Lima", "fecha": datetime(2027, 6, 12, 18, tzinfo=timezone.utc), "precio_centimos": 11000},
+    {"id": 5, "nombre": "Concierto Internacional", "stock": 400, "descripcion": "Un artista internacional y producción de gran formato para una noche única.", "lugar": "Arena Lima", "fecha": datetime(2027, 7, 3, 20, 30, tzinfo=timezone.utc), "precio_centimos": 14500},
 ]
 
 
@@ -139,7 +137,63 @@ def health(response: Response, db: Session = Depends(get_db)):
 @app.get("/eventos")
 def listar_eventos(db: Session = Depends(get_db)):
     eventos = db.query(Evento).all()
-    return [catalog.serialize(e) for e in eventos]
+    prices = dict(db.query(Asiento.evento_id, func.coalesce(
+        func.min(case((Asiento.operacion_id.is_(None), Asiento.precio_centimos))),
+        func.min(Asiento.precio_centimos))).group_by(Asiento.evento_id).all())
+    return [catalog.serialize(e, prices.get(e.id)) for e in eventos]
+
+
+@app.post("/eventos/{evento_id}/cancelar")
+def cancelar_evento(
+    evento_id: int = Path(gt=0), motivo: str = Query(default="Cancelación administrativa", max_length=300),
+    db: Session = Depends(get_db), admin: dict = Depends(require_admin),
+):
+    return cerrar_evento(db, evento_id, motivo, f"{admin['iss']}|{admin['sub']}")
+
+
+def cerrar_evento(db, evento_id, motivo, actor):
+    """La fila cancelada funciona como señal durable recuperable por Compras."""
+    evento = db.query(Evento).filter(Evento.id == evento_id).with_for_update().first()
+    if not evento:
+        raise HTTPException(404, "Evento no encontrado")
+    if evento.cancelado_en is not None:
+        return {"evento_id": evento_id, "estado": "cancelado", "idempotente": True}
+    evento.activo = False
+    evento.motivo_cancelacion = motivo.strip() or "Cancelación administrativa"
+    evento.cancelado_en = datetime.now(timezone.utc)
+    evento.cancelado_por = actor
+    db.add(models.AuditoriaCatalogo(evento_id=evento_id, actor=actor, accion="cancelar"))
+    db.commit()
+    return {"evento_id": evento_id, "estado": "cancelado", "idempotente": False}
+
+
+@app.post("/interno/eventos/{evento_id}/cancelar")
+def cerrar_evento_interno(evento_id: int = Path(gt=0), motivo: str = Query(max_length=300),
+                         actor: str = Query(min_length=1, max_length=128), db: Session = Depends(get_db),
+                         _service: None = Depends(require_service_token)):
+    # Solo el coordinador puede reanudar una intención administrativa persistida.
+    return cerrar_evento(db, evento_id, motivo, actor)
+
+
+@app.get("/interno/eventos/cancelados")
+def cancelaciones_pendientes(after_id: int = Query(default=0, ge=0), db: Session = Depends(get_db),
+                            _service: None = Depends(require_service_token)):
+    rows = db.query(Evento).filter(Evento.cancelado_en.isnot(None), Evento.id > after_id).order_by(Evento.id).limit(100).all()
+    return {"items": [{"evento_id": e.id, "motivo": e.motivo_cancelacion,
+                       "solicitada_por": e.cancelado_por or "catalogo:administrador",
+                       "cancelado_en": e.cancelado_en.isoformat()} for e in rows]}
+
+
+@app.get("/interno/eventos/{evento_id}/reservas-activas")
+def reservas_del_evento(evento_id: int = Path(gt=0), db: Session = Depends(get_db),
+                       _service: None = Depends(require_service_token)):
+    event = db.get(Evento, evento_id)
+    if not event:
+        raise HTTPException(404, "Evento no encontrado")
+    rows = db.query(ReservaStock).filter(ReservaStock.evento_id == evento_id, ReservaStock.estado != "liberada").all()
+    return {"evento_id": evento_id, "cancelado": event.cancelado_en is not None,
+            "reservas": [{"operacion_id": r.operacion_id, "cantidad": r.cantidad,
+                           "estado": r.estado, "total_centimos": r.total_centimos} for r in rows]}
 
 @app.get("/eventos/auditoria/stock")
 def auditoria_eventos(db: Session = Depends(get_db), _service: None = Depends(require_service_token)):
@@ -212,7 +266,10 @@ def obtener_evento(evento_id: int, db: Session = Depends(get_db)):
     evento = db.query(Evento).filter(Evento.id == evento_id).first()
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
-    return catalog.serialize(evento)
+    price = db.query(func.coalesce(
+        func.min(case((Asiento.operacion_id.is_(None), Asiento.precio_centimos))),
+        func.min(Asiento.precio_centimos))).filter(Asiento.evento_id == evento_id).scalar()
+    return catalog.serialize(evento, price)
 
 
 @app.get("/eventos/{evento_id}/stock")
@@ -344,6 +401,8 @@ def reservar_entradas(
     evento = db.query(Evento).filter(Evento.id == evento_id).with_for_update().first()
     if not evento:
         raise HTTPException(404, "Evento no encontrado")
+    if evento.cancelado_en is not None:
+        raise HTTPException(409, "Evento cancelado")
     existente = db.query(ReservaStock).filter(ReservaStock.operacion_id == operacion_id).with_for_update().first()
     if existente:
         if existente.evento_id != evento_id or existente.cantidad != cantidad or sorted(existente.asientos or []) != codigos:
@@ -365,7 +424,7 @@ def reservar_entradas(
     evento = db.query(Evento).filter(Evento.id == evento_id).with_for_update().first()
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
-    if not evento.activo:
+    if not evento.activo or (evento.fecha and evento.fecha.replace(tzinfo=evento.fecha.tzinfo or timezone.utc) <= datetime.now(timezone.utc)):
         raise HTTPException(409, "Evento cerrado")
     seats = db.query(Asiento).filter_by(evento_id=evento_id).all()
     selected = [seat for seat in seats if seat.codigo in codigos]
@@ -420,6 +479,12 @@ def confirmar_reserva(
     _service: None = Depends(require_service_token),
 ):
     """Marca como confirmada una reserva cuya compra ya quedó persistida."""
+    # Siempre evento -> reserva, igual que reservar y devolver, evita interbloqueos.
+    evento = db.query(Evento).filter_by(id=evento_id).with_for_update().first()
+    if not evento:
+        raise HTTPException(404, "Evento no encontrado")
+    if evento.cancelado_en is not None:
+        raise HTTPException(409, "Evento cancelado; corresponde compensar la operación")
     reserva = db.query(ReservaStock).filter(ReservaStock.operacion_id == operacion_id).with_for_update().first()
     if not reserva or reserva.evento_id != evento_id:
         raise HTTPException(status_code=404, detail="Reserva no encontrada para ese evento")
@@ -444,6 +509,9 @@ def liberar_entradas(
     """Compensa una reserva una sola vez; no permite inflar el stock por reintentos."""
     t_inicio_lock = time.perf_counter()
     t_actual = tic_lamport(reloj_t)
+    evento = db.query(Evento).filter_by(id=evento_id).with_for_update().first()
+    if not evento:
+        raise HTTPException(404, "Evento no encontrado")
     reserva = db.query(ReservaStock).filter(ReservaStock.operacion_id == operacion_id).with_for_update().first()
     if not reserva or reserva.evento_id != evento_id:
         raise HTTPException(status_code=404, detail="Reserva no encontrada para compensar")

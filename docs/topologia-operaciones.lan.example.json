@@ -1,0 +1,15 @@
+{
+  "frontend": {"url": "http://pc1.invalid:8080", "nodo": "PC1", "dependencias": ["gateway", "usuarios_entrada", "eventos_entrada"]},
+  "gateway": {"url": "http://pc1.invalid:8005", "nodo": "PC1", "dependencias": ["compras1", "compras2"]},
+  "usuarios_entrada": {"url": "http://pc1.invalid:8001", "nodo": "PC1", "dependencias": ["usuarios_a", "usuarios_b"]},
+  "eventos_entrada": {"url": "http://pc1.invalid:8002", "nodo": "PC1", "dependencias": ["eventos_a", "eventos_b"]},
+  "usuarios_a": {"url": "http://pc2.invalid:8001", "nodo": "PC2", "dependencias": ["usuarios_db"]},
+  "usuarios_b": {"url": "http://pc3.invalid:8001", "nodo": "PC3", "dependencias": ["usuarios_db"]},
+  "eventos_a": {"url": "http://pc2.invalid:8002", "nodo": "PC2", "dependencias": ["eventos_db"]},
+  "eventos_b": {"url": "http://pc3.invalid:8002", "nodo": "PC3", "dependencias": ["eventos_db"]},
+  "compras1": {"url": "http://pc1.invalid:8003", "nodo": "PC1", "dependencias": ["compras_db", "eventos_entrada"]},
+  "compras2": {"url": "http://pc2.invalid:8003", "nodo": "PC2", "dependencias": ["compras_db", "eventos_entrada"]},
+  "usuarios_db": {"nodo": "PC2"},
+  "eventos_db": {"nodo": "PC2"},
+  "compras_db": {"nodo": "PC2"}
+}

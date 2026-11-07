@@ -45,7 +45,7 @@ class MiddlewareMetricas(BaseHTTPMiddleware):
                 _METRICAS["errores_http"] += 1
                 _METRICAS["latencia_total_ms"] += elapsed
                 _METRICAS["latencia_max_ms"] = max(_METRICAS["latencia_max_ms"], elapsed)
-                _METRICAS_RECIENTES.append({"timestamp": time.time(), "metodo": request.method, "ruta": request.url.path, "status": 500, "latencia_ms": round(elapsed, 2)})
+                _METRICAS_RECIENTES.append({"timestamp": time.time(), "metodo": request.method, "ruta": getattr(request.scope.get("route"), "path", "unmatched"), "status": 500, "latencia_ms": round(elapsed, 2)})
             raise
         elapsed = (time.perf_counter() - inicio) * 1000
         with _METRICAS_LOCK:
@@ -54,7 +54,7 @@ class MiddlewareMetricas(BaseHTTPMiddleware):
                 _METRICAS["errores_http"] += 1
             _METRICAS["latencia_total_ms"] += elapsed
             _METRICAS["latencia_max_ms"] = max(_METRICAS["latencia_max_ms"], elapsed)
-            _METRICAS_RECIENTES.append({"timestamp": time.time(), "metodo": request.method, "ruta": request.url.path, "status": response.status_code, "latencia_ms": round(elapsed, 2)})
+            _METRICAS_RECIENTES.append({"timestamp": time.time(), "metodo": request.method, "ruta": getattr(request.scope.get("route"), "path", "unmatched"), "status": response.status_code, "latencia_ms": round(elapsed, 2)})
         return response
 
 app.add_middleware(MiddlewareMetricas)
@@ -139,7 +139,10 @@ def registrar_journal(tipo: str, mensaje: str, detalles: dict = None, t: int = N
     """Persiste eventos funcionales en PostgreSQL compartido por las réplicas."""
     global JOURNAL_TRANSACCIONES
     reloj = t if t is not None else tic_lamport()
-    detalles_seguro = detalles or {}
+    from shared.telemetry import correlation_id
+    detalles_seguro = dict(detalles or {})
+    if correlation_id.get():
+        detalles_seguro["correlation_id"] = correlation_id.get()
     entrada = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "reloj_t": reloj,
@@ -579,7 +582,7 @@ def require_admin_for_simulation(datos, principal: Principal) -> None:
         raise HTTPException(status_code=403, detail="Las simulaciones técnicas requieren rol administrador")
 
 
-AUTH_MIGRATION_REVISION = "20261102_03"
+AUTH_MIGRATION_REVISION = "20261105_06"
 
 
 def esperar_bd():
@@ -638,7 +641,7 @@ def validar_nodo_disponible():
 # RUTAS DE CONTROL DE SALUD Y FAILOVER
 # =========================================================================
 @app.get("/metricas")
-def obtener_metricas():
+def obtener_metricas(_admin: Principal = Depends(require_admin)):
     """Métricas de observabilidad locales a esta réplica; no modifica el estado de negocio."""
     with _METRICAS_LOCK:
         m = dict(_METRICAS)
@@ -1206,6 +1209,13 @@ def listar_compras(db: Session = Depends(get_db), _admin: Principal = Depends(re
 @app.get("/compras/journal")
 def obtener_journal(db: Session = Depends(get_db), _admin: Principal = Depends(require_admin)):
     """Devuelve la bitácora persistente compartida por compras1 y compras2."""
+    from shared.operations import clean
+    visible_keys = {"orden_id", "operacion_id", "compra_id", "evento_id", "cantidad", "estado",
+                    "instancia", "correlation_id", "reembolso_id", "total_centimos", "tipo"}
+    def public_details(details):
+        return {key: clean(value, 160) if isinstance(value, str) else value
+                for key, value in (details or {}).items()
+                if key in visible_keys and isinstance(value, (str, int, float, bool))}
     registros = db.query(RegistroJournal).order_by(RegistroJournal.id.desc()).limit(200).all()
     return {
         "total_entradas": db.query(RegistroJournal).count(),
@@ -1218,8 +1228,8 @@ def obtener_journal(db: Session = Depends(get_db), _admin: Principal = Depends(r
                 "reloj_t": r.reloj_t,
                 "instancia": r.instancia,
                 "tipo": r.tipo,
-                "mensaje": r.mensaje,
-                "detalles": r.detalles or {},
+                "mensaje": f"Evento funcional: {clean(r.tipo, 80)}. Detalles privados omitidos.",
+                "detalles": public_details(r.detalles),
             }
             for r in registros
         ],
@@ -2059,12 +2069,8 @@ def auditar_consistencia(db: Session = Depends(get_db), _admin: Principal = Depe
 
 @app.post("/compras/journal/limpiar")
 def limpiar_journal(db: Session = Depends(get_db), _admin: Principal = Depends(require_admin)):
-    """Limpia la bitácora funcional persistente (solo para demostraciones)."""
-    global JOURNAL_TRANSACCIONES
-    eliminadas = db.query(RegistroJournal).delete(synchronize_session=False)
-    db.commit()
-    JOURNAL_TRANSACCIONES.clear()
-    return {"status": "ok", "entradas_eliminadas": eliminadas, "mensaje": "Bitácora persistente reinicializada."}
+    """Sin procedencia sintética verificable no se permite borrar auditoría."""
+    raise HTTPException(409, "Limpieza deshabilitada: la bitácora no distingue datos sintéticos de reales y debe conservarse")
 
 
 from shared import telemetry
@@ -2086,3 +2092,6 @@ def stop_orders():
 
 from shared import diagnostics
 diagnostics.install(app, get_db, require_admin)
+
+from shared import operations
+operations.install(app, checkout_models, get_db, require_admin, EVENTOS_URL)

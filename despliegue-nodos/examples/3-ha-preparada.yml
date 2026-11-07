@@ -1,0 +1,31 @@
+# HA PREPARADA: recuperación manual, sin elección ni promoción automática.
+version: 1
+deployment: nodos-tres
+profile: alta_disponibilidad
+gateway: {preferred: equipo-a}
+nodes:
+  - id: equipo-a
+    address: 192.168.50.11
+    platform: fedora
+    failure_domain: maquina-a
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: [gateway, frontend, usuarios, eventos, compras]
+    docker_subnet: 172.28.101.0/24
+  - id: equipo-b
+    address: 192.168.50.12
+    platform: wsl2
+    failure_domain: maquina-b
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: [gateway, frontend, usuarios, eventos, compras]
+    docker_subnet: 172.28.102.0/24
+  - id: equipo-c
+    address: 192.168.50.13
+    platform: fedora
+    failure_domain: maquina-c
+    resources: {cpus: 2, memory_mb: 2048}
+    roles: []  # Equipo dedicado a PostgreSQL, no a las API.
+    docker_subnet: 172.28.103.0/24
+databases:
+  usuarios: {primary: equipo-a, standbys: [equipo-b, equipo-c], replication: sync, sync_quorum: 1}
+  eventos: {primary: equipo-b, standbys: [equipo-a, equipo-c], replication: sync, sync_quorum: 1}
+  compras: {primary: equipo-c, standbys: [equipo-a, equipo-b], replication: sync, sync_quorum: 1}

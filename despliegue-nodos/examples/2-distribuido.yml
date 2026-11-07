@@ -1,0 +1,25 @@
+# Sustituir las direcciones por las IP LAN de las dos máquinas.
+version: 1
+deployment: nodos-dos
+profile: distribuido
+gateway: {preferred: equipo-a}
+nodes:
+  - id: equipo-a
+    address: 192.168.50.11
+    platform: fedora
+    failure_domain: maquina-a
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: [gateway, frontend, usuarios, eventos, compras]
+    docker_subnet: 172.28.101.0/24
+  - id: equipo-b
+    # En WSL2: IP LAN de WINDOWS, no la IP privada de Ubuntu.
+    address: 192.168.50.12
+    platform: wsl2
+    failure_domain: maquina-b
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: [gateway, frontend, usuarios, eventos, compras]
+    docker_subnet: 172.28.102.0/24
+databases:
+  usuarios: {primary: equipo-a, standbys: [equipo-b], replication: async}
+  eventos: {primary: equipo-b, standbys: [equipo-a], replication: async}
+  compras: {primary: equipo-a, standbys: [equipo-b], replication: async}

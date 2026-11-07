@@ -20,10 +20,17 @@ class Evento(Base):
     stock_inicial = Column(Integer, nullable=True)
     descripcion = Column(String, nullable=False, default="", server_default="")
     lugar = Column(String(200), nullable=False, default="", server_default="")
+    categoria = Column(String(80), nullable=False, default="", server_default="")
+    imagen_url = Column(String(2000), nullable=False, default="", server_default="")
     fecha = Column(DateTime(timezone=True), nullable=True)
     precio_centimos = Column(Integer, nullable=False, default=0, server_default="0")
     organizador = Column(String(128), nullable=True)
     activo = Column(Boolean, nullable=False, default=True, server_default="true")
+    # La baja lógica conserva el historial de reservas y evita reabrir ventas
+    # accidentalmente durante una compensación distribuida.
+    cancelado_en = Column(DateTime(timezone=True), nullable=True)
+    motivo_cancelacion = Column(String(300), nullable=True)
+    cancelado_por = Column(String(128), nullable=True)
 
 
 class ReservaStock(Base):
@@ -74,7 +81,8 @@ class OperacionCerrada(Base):
 class AuditoriaCatalogo(Base):
     __tablename__ = "auditoria_catalogo"
     id = Column(Integer, primary_key=True)
-    evento_id = Column(Integer, ForeignKey("eventos.id"), nullable=False)
+    # La auditoría sobrevive a la eliminación de un evento sin referencias.
+    evento_id = Column(Integer, nullable=False)
     actor = Column(String(128), nullable=False)
     accion = Column(String(24), nullable=False)
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

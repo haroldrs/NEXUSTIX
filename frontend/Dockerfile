@@ -4,6 +4,6 @@
 FROM nginx:1.28-alpine
 
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
-COPY frontend/index.html frontend/style.css frontend/app.js frontend/checkout.js frontend/config.js /usr/share/nginx/html/
+COPY frontend/index.html frontend/style.css frontend/admin.css frontend/app.js frontend/checkout.js frontend/catalog.js frontend/admin.js frontend/config.js /usr/share/nginx/html/
 
 EXPOSE 80

@@ -1,0 +1,17 @@
+# Nueva instalación independiente; no reemplaza el demo existente en 8080.
+version: 1
+deployment: nodos-local
+profile: local
+gateway: {preferred: equipo-a}
+nodes:
+  - id: equipo-a
+    address: 127.0.0.1
+    platform: fedora
+    failure_domain: maquina-a
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: [gateway, frontend, usuarios, eventos, compras]
+    docker_subnet: 172.28.101.0/24
+databases:
+  usuarios: {primary: equipo-a, standbys: [], replication: async}
+  eventos: {primary: equipo-a, standbys: [], replication: async}
+  compras: {primary: equipo-a, standbys: [], replication: async}
