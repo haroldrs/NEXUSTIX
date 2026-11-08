@@ -16,6 +16,7 @@ CREATE ROLE nexustix_app LOGIN PASSWORD :'app_password' NOSUPERUSER NOCREATEDB N
 CREATE ROLE replicator LOGIN REPLICATION PASSWORD :'repl_password' NOSUPERUSER NOCREATEDB NOCREATEROLE;
 -- Lectura de canales WAL para el diagnóstico administrativo; no concede promoción.
 GRANT pg_monitor TO nexustix_app;
+GRANT EXECUTE ON FUNCTION pg_control_system() TO nexustix_app;
 ALTER DATABASE :"db" OWNER TO nexustix_app;
 ALTER SCHEMA public OWNER TO nexustix_app;
 REVOKE ALL ON DATABASE :"db" FROM PUBLIC;

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from inventory import DOMAINS, PORTS, SERVICE_RESOURCES, replica_id, topology_document
+from inventory import DOMAINS, PORTS, SERVICE_RESOURCES, inventory_fingerprint, replica_id, stable_access, topology_document
 
 INTERNAL_PORTS = {"frontend": 80, "usuarios": 8001, "eventos": 8002, "compras": 8003}
 SECRET_FILES = {
@@ -32,12 +32,23 @@ def haproxy_config(inventory, node, public):
         "    timeout resolve 1s", "    timeout retry 1s", "    hold valid 10s", "",
         "# No redispatch ni reintento de escrituras: el cliente conserva su clave de idempotencia.",
     ]
+    gateway_health = json.dumps({"status": "ok", "servicio": "gateway", "node_id": node["id"],
+                                 "deployment_id": inventory["deployment"], "release": inventory["release"],
+                                 "inventory_sha256": inventory_fingerprint(inventory)}, separators=(",", ":"))
     roles = ("frontend", *DOMAINS) if public else DOMAINS
     for role in roles:
         port = inventory["ports"]["public" if role == "frontend" else role] if public else PORTS[role]
         rows.extend([
             "", f"frontend entrada_{role}", f"    bind :{port}",
-            "    http-request return status 200 content-type application/json string '{\"status\":\"ok\",\"servicio\":\"gateway\"}' if { path /lb-health }",
+            f"    http-request return status 200 content-type application/json string '{gateway_health}' if {{ path /lb-health }}",
+        ])
+        if public and role in DOMAINS:
+            rows.extend([
+                "    acl consulta_cluster path /admin/operaciones/cluster /diagnostico/instancia",
+                "    acl consulta_cluster path_beg /admin/operaciones/cluster/",
+                f"    use_backend observadores_{role} if consulta_cluster",
+            ])
+        rows.extend([
             f"    default_backend pool_{role}", "", f"backend pool_{role}",
             "    balance roundrobin", "    option httpchk",
             "    http-check send meth GET uri /health ver HTTP/1.1 hdr Host nexustix.internal",
@@ -48,6 +59,19 @@ def haproxy_config(inventory, node, public):
                 address = _server_address(inventory, node, backend, role)
                 resolution = " resolvers docker resolve-prefer ipv4 init-addr last,libc,none" if node["id"] == backend["id"] else ""
                 rows.append(f"    server {role}_{backend['id']} {address} check inter 3s fall 2 rise 2{resolution}")
+        if public and role in DOMAINS:
+            rows.extend([
+                "", f"backend observadores_{role}",
+                "    # Afinidad por origen sólo para caché/historial; no autentica al cliente.",
+                "    balance source", "    option httpchk",
+                "    http-check send meth GET uri /health/observador ver HTTP/1.1 hdr Host nexustix.internal",
+                "    http-check expect status 200", "    http-response set-header X-Nexustix-Backend %[srv_name]",
+            ])
+            for backend in inventory["nodes"]:
+                if role in backend["roles"]:
+                    address = _server_address(inventory, node, backend, role)
+                    resolution = " resolvers docker resolve-prefer ipv4 init-addr last,libc,none" if node["id"] == backend["id"] else ""
+                    rows.append(f"    server observador_{role}_{backend['id']} {address} check inter 3s fall 2 rise 2{resolution}")
     return "\n".join(rows) + "\n"
 
 
@@ -75,7 +99,8 @@ def render_node(inventory, node, source_root):
     ports = inventory["ports"]
     nodes = {entry["id"]: entry for entry in inventory["nodes"]}
     labels = {"org.nexustix.deployment": inventory["deployment"], "org.nexustix.node": node["id"],
-              "org.nexustix.profile": inventory["profile"], "org.nexustix.managed-by": "despliegue-nodos"}
+              "org.nexustix.profile": inventory["profile"], "org.nexustix.managed-by": "despliegue-nodos",
+              "org.nexustix.inventory-sha256": inventory_fingerprint(inventory), "org.nexustix.release": inventory["release"]}
     compose = {
         "name": project, "services": {},
         "networks": {"node": {"name": f"{project}-network", "labels": labels,
@@ -129,7 +154,11 @@ def render_node(inventory, node, source_root):
         files["config/frontend-config.js"] = frontend_config(inventory)
         compose["services"]["frontend"] = frontend
 
-    origins = ",".join(f"http://{item['address']}:{ports['public']}" for item in inventory["nodes"] if "gateway" in item["roles"])
+    origins = [f"http://{item['address']}:{ports['public']}" for item in inventory["nodes"] if "gateway" in item["roles"]]
+    stable = stable_access(inventory)
+    if stable.get("url"):
+        origins.append(stable["url"])
+    origins = ",".join(origins)
     for domain in DOMAINS:
         if domain not in node["roles"]:
             continue
@@ -141,6 +170,9 @@ def render_node(inventory, node, source_root):
             "DB_APPLICATION_NAME": f"{domain}_{node['id']}", "INSTANCE_ID": f"{domain}_{node['id']}",
             "NEXUSTIX_DEPLOYMENT_ENV": "nodes", "NEXUSTIX_TEST_CRASH_HOOKS": "0",
             "NEXUSTIX_NODE_ID": node["id"], "DB_CONNECT_TIMEOUT_SECONDS": "3",
+            "NEXUSTIX_SERVICE": domain,
+            "NEXUSTIX_DEPLOYMENT_ID": inventory["deployment"], "NEXUSTIX_RELEASE": inventory["release"],
+            "NEXUSTIX_INVENTORY_SHA256": inventory_fingerprint(inventory),
             "NEXUSTIX_OPERATIONS_INVENTORY_FILE": "/run/config/operations-inventory.json",
             "USUARIOS_URL": "http://router:8001", "EVENTOS_URL": "http://router:8002",
         }

@@ -4,6 +4,7 @@ Los GET no escriben: solo las capturas/importaciones explícitas crean evidencia
 Las URL proceden exclusivamente de configuración del servidor, nunca del cliente.
 """
 import json
+import math
 import os
 import re
 import time
@@ -21,7 +22,6 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from shared.auth_tokens import service_auth_headers
 from shared import node_operations
-from shared.operations_models import EvidenciaOperacion, IncidenteOperacion, ObservacionComponente
 
 STATES = Literal["saludable", "degradado", "caido", "desconocido"]
 SCENARIO = Literal["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
@@ -214,11 +214,12 @@ def topology(events_url):
     return result, warnings
 
 
-def fetch(url, path, authorization=None, internal=False):
+def fetch(url, path, authorization=None, internal=False, deadline=None):
     """GET fijo, sin redirecciones, proxies ambientales ni cuerpos no acotados."""
     if not url:
         return {"ok": False, "status": None, "datos": {}, "latencia_ms": None, "motivo": "Destino no configurado"}
     start = time.monotonic()
+    request_deadline = min(start + 4, deadline) if deadline is not None else start + 4
     try:
         headers = {"Accept": "application/json"}
         if authorization:
@@ -227,15 +228,16 @@ def fetch(url, path, authorization=None, internal=False):
             headers.update(service_auth_headers())
         with requests.Session() as session:
             session.trust_env = False
-            with session.get(url + path, headers=headers, timeout=(1, 2), allow_redirects=False, stream=True) as response:
+            with session.get(url + path, headers=headers, timeout=(1, 1), allow_redirects=False, stream=True) as response:
                 body = bytearray()
-                for chunk in response.iter_content(8192):
+                # Acotar también servidores que entregan lentamente el cuerpo.
+                for chunk in response.iter_content(1):
                     body.extend(chunk)
-                    if len(body) > 131072:
+                    if len(body) > 131072 or time.monotonic() >= request_deadline:
                         raise ValueError()
                 try:
-                    payload = json.loads(body)
-                except (ValueError, UnicodeError):
+                    payload = json.loads(body, parse_constant=lambda value: (_ for _ in ()).throw(ValueError()))
+                except (ValueError, UnicodeError, RecursionError):
                     payload = {}
                 return {"ok": response.status_code == 200, "status": response.status_code,
                     "datos": payload if isinstance(payload, dict) else {},
@@ -254,7 +256,7 @@ def probe(entry, authorization, deadline=None):
         if deadline is not None and time.monotonic() >= deadline:
             return {"ok": False, "status": None, "datos": {}, "latencia_ms": None,
                 "motivo": "Sonda omitida por presupuesto temporal de la captura; estado no verificado"}
-        return fetch(url, path, credentials)
+        return fetch(url, path, credentials, deadline=deadline)
 
     url = entry["url"]
     component = {key: value for key, value in entry.items() if key != "url"}
@@ -267,6 +269,7 @@ def probe(entry, authorization, deadline=None):
         status = "degradado"  # HTTP prueba respuesta, no caída del proceso/PC.
     db_state = "disponible" if data.get("db") == "connected" else "no_disponible" if data.get("db") == "unavailable" else "desconocido"
     component.update({"estado": status, "comprobado_en": now().isoformat(),
+        "sonda_realizada": health["latencia_ms"] is not None,
         "latencia_ms": health["latencia_ms"], "instancia": clean(data.get("instancia"), 80) or health.get("instancia"),
         "base_datos": db_state, "http_status": health["status"], "detalle": health["motivo"],
         "alcance": "observación HTTP; no acredita el estado de contenedor o máquina"})
@@ -279,8 +282,17 @@ def probe(entry, authorization, deadline=None):
             "backend": traffic.get("backend"),
             "estado": "saludable" if traffic["ok"] and traffic["datos"].get("status") == "ok" else "no_verificado",
             "alcance": "Una lectura real por la ruta configurada; no prueba continuidad de escrituras ni el algoritmo de balanceo."}
+        if entry["tipo"] == "gateway" and component["estado"] == "saludable" and component["solicitud_observada"]["estado"] != "saludable":
+            component["estado"] = "degradado" if traffic["status"] is not None else "desconocido"
+            component["detalle"] = "Gateway responde, pero su ruta hacia el frontend no tiene una lectura saludable verificable."
     diagnostic = metrics = None
     if url and entry["tipo"] == "api":
+        identity = read("/diagnostico/instancia", authorization) if entry.get("origen_configuracion") == "inventario_nodos" else None
+        if identity and identity["ok"]:
+            component["identidad_observada"] = {key: value for key, value in identity["datos"].items()
+                if key in {"instancia", "servicio", "node_id", "deployment_id", "release", "inventory_sha256", "comprobado_en"}
+                and isinstance(value, str) and len(value) <= 96 and re.fullmatch(r"[A-Za-z0-9_.:+-]+", value)}
+            component["respuesta_administrativa_en"] = now().isoformat()
         diagnostic = read("/diagnostico/db", authorization)
         metrics = read("/diagnostico/metricas", authorization)
     return component, diagnostic, metrics
@@ -291,7 +303,8 @@ DIAGNOSTIC_KEYS = {"disponible", "rol", "comprobado_en", "version", "en_recupera
     "application_name", "state", "sync_state", "sent_lsn", "write_lsn", "flush_lsn", "replay_lsn", "lag_bytes", "replay_lag_seconds",
     "status", "written_lsn", "flushed_lsn", "latest_end_lsn", "last_msg_receipt_time", "recibido_lsn", "aplicado_lsn", "ultimo_replay", "replay_pausado",
     "actual_lsn", "persistido_lsn", "archived_count", "failed_count", "last_archived_time", "last_failed_time", "num_timed", "num_requested", "write_time", "sync_time",
-    "buffers_written", "stats_reset", "checkpoint_lsn", "redo_lsn", "timeline_id", "checkpoint_time", "total", "activas", "maximas", "fsync", "full_page_writes", "synchronous_commit", "wal_level"}
+    "buffers_written", "stats_reset", "checkpoint_lsn", "redo_lsn", "timeline_id", "checkpoint_time", "total", "activas", "maximas", "fsync", "full_page_writes", "synchronous_commit", "wal_level",
+    "identidad", "identidad_nodo", "direccion", "puerto", "sistema", "identificador_sistema", "synchronous_standby_names", "transaction_read_only"}
 METRIC_KEYS = {"disponible", "servicio", "instancia", "desde", "alcance", "solicitudes", "exitosas", "errores_http", "latencia_media_ms", "latencia_max_ms", "recientes", "momento", "correlation_id", "metodo", "ruta", "status", "latencia_ms"}
 
 
@@ -302,10 +315,12 @@ def whitelist(value, keys, depth=0):
         return {k: whitelist(v, keys, depth + 1) for k, v in value.items() if k in keys}
     if isinstance(value, list):
         return [whitelist(v, keys, depth + 1) for v in value[:100]]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     return clean(value) if isinstance(value, str) else value if isinstance(value, (bool, int, float)) else None
 
 
-def node_snapshot(events_url, authorization):
+def node_snapshot(events_url, authorization, *, include_business_inventory=True):
     document, warnings = node_operations.load_inventory()
     if not document:
         return {"capturado_en": now().isoformat(), "componentes": [], "persistencia": [], "metricas": [],
@@ -333,8 +348,8 @@ def node_snapshot(events_url, authorization):
     components.extend(database_components)
     infrastructure = node_operations.infrastructure_view(document, components, assignments)
     inventory = {"verificable": False, "motivo": "Consulta no realizada dentro del presupuesto temporal"}
-    if time.monotonic() < deadline:
-        result = fetch(events_url, "/inventario/estado", authorization)
+    if include_business_inventory and time.monotonic() < deadline:
+        result = fetch(events_url, "/inventario/estado", authorization, deadline=deadline)
         inventory_keys = {"eventos", "evento_id", "inicial", "disponible", "reservadas", "vendidas", "consistente", "ecuacion"}
         inventory = {"verificable": result["ok"], **whitelist(result["datos"], inventory_keys)}
     return {"capturado_en": now().isoformat(), "componentes": components, "persistencia": persistence, "metricas": metrics,
@@ -346,7 +361,7 @@ def node_snapshot(events_url, authorization):
             "Las proyecciones no ejecutan fallos; una falta de respuesta no confirma que el nodo esté apagado.",
             "Los standbys se relacionan con canales WAL por application_name; su salud física no se consulta directamente.",
             "El cambio de gateway usa una URL alternativa explícita y puede requerir iniciar sesión de nuevo.",
-            "Lecturas tomadas en momentos distintos; solo capturas explícitas conservan incidentes y evidencias."]}
+            "Lecturas tomadas en momentos distintos; el historial durable requiere capturas explícitas."]}
 
 
 def snapshot(events_url, authorization):
@@ -405,6 +420,7 @@ def snapshot(events_url, authorization):
 
 
 def transitions(db, report):
+    from shared.operations_models import IncidenteOperacion, ObservacionComponente
     # Serializa capturas entre réplicas; nunca ejecutado por endpoints GET.
     if db.get_bind().dialect.name == "postgresql":
         db.execute(text("SELECT pg_advisory_xact_lock(7419251055)"))
@@ -479,6 +495,9 @@ def report_document(data, observation):
 
 
 def install(app, models, get_db, require_admin, events_url):
+    # Sólo Compras registra estos modelos. Los observadores de Usuarios/Eventos
+    # reutilizan sondas HTTP sin agregar tablas a sus metadatos de negocio.
+    from shared.operations_models import EvidenciaOperacion, IncidenteOperacion
     @app.get("/admin/operaciones/estado")
     def state(authorization: str | None = Header(default=None), db=Depends(get_db), _admin=Depends(require_admin)):
         observation = snapshot(events_url, authorization)
@@ -509,7 +528,11 @@ def install(app, models, get_db, require_admin, events_url):
             initial = db.get(EvidenciaOperacion, data.referencia_inicial)
             if not initial or initial.escenario != data.escenario or initial.documento.get("fase") != "inicial" or initial.documento.get("origen") != "captura":
                 raise HTTPException(422, "Referencia inicial no corresponde a una captura real del mismo escenario")
-        report = report_document(data, snapshot(events_url, authorization))
+        observation = snapshot(events_url, authorization)
+        if node_operations.enabled():
+            from shared.cluster_observer import observer
+            observation = observer.record(observation)
+        report = report_document(data, observation)
         report["evidencias"]["pendientes"] = pending_values(db, models)
         if initial:
             report["estado_inicial"] = initial.documento["evidencias"]

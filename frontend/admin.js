@@ -14,6 +14,18 @@ const ADMIN_INITIAL_CAPTURES = new Map();
 const ADMIN_PAGES = new Map();
 const ADMIN_PAGE_REQUESTS = new Map();
 const ADMIN_REFRESHES = new Set();
+let ADMIN_CLUSTER = null;
+let ADMIN_CLUSTER_SELECTED = null;
+let ADMIN_CLUSTER_TIMER = null;
+let ADMIN_CLUSTER_CONTROLLER = null;
+let ADMIN_CLUSTER_REQUEST = 0;
+let ADMIN_CLUSTER_STALE = true;
+let ADMIN_CLUSTER_BASE = null;
+let ADMIN_CLUSTER_IMPORT_CONTROLLER = null;
+const ADMIN_CLUSTER_EVENTS = new Map();
+const ADMIN_CLUSTER_CANDIDATES = new Map();
+const ADMIN_CLUSTER_LAST_NODES = new Map();
+const ADMIN_CLUSTER_POLL_MS = 30000;
 const ADMIN_API = () => `${CONFIG.COMPRAS_LB_URL}/admin/operaciones`;
 const adminAllowed = () => CURRENT_USER?.role === "administrador";
 const adminNode = id => document.getElementById(id);
@@ -49,27 +61,32 @@ async function adminBusy(button, operation) {
 }
 
 function clearAdminWorkspace() {
+  stopClusterPolling();
   ADMIN_GENERATION += 1;
+  ADMIN_CLUSTER = null; ADMIN_CLUSTER_SELECTED = null; ADMIN_CLUSTER_STALE = true; ADMIN_CLUSTER_BASE = null; ADMIN_CLUSTER_EVENTS.clear(); ADMIN_CLUSTER_CANDIDATES.clear(); ADMIN_CLUSTER_LAST_NODES.clear();
   ADMIN_EVENTS = []; ADMIN_SCENARIOS = []; ADMIN_SNAPSHOT = null; ADMIN_REPORT = null;
   ADMIN_INITIAL_CAPTURES.clear(); ADMIN_PAGES.clear(); ADMIN_REFRESHES.clear();
   ADMIN_PAGE_REQUESTS.clear(); ADMIN_SNAPSHOT_REQUEST++;
   document.querySelectorAll("#view-admin [data-admin-panel]").forEach(panel => { panel.hidden = panel.dataset.adminPanel !== "summary"; });
-  ["admin-events", "admin-sales", "admin-users", "admin-summary", "admin-orders", "admin-tickets", "admin-refunds", "admin-cancellations", "service-grid", "infrastructure-map", "database-cards", "replica-metrics", "audit-result", "pending-status", "journal-list", "trace-result", "lab-status", "lab-evidence", "lab-scenario-detail", "incident-list", "evidence-list", "distributed-health", "admin-limitations", "evidence-report", "node-infrastructure", "node-database-assignments"].forEach(id => {
+  ["admin-events", "admin-sales", "admin-users", "admin-summary", "admin-orders", "admin-tickets", "admin-refunds", "admin-cancellations", "service-grid", "infrastructure-map", "database-cards", "replica-metrics", "audit-result", "pending-status", "journal-list", "trace-result", "lab-status", "lab-evidence", "lab-scenario-detail", "incident-list", "evidence-list", "distributed-health", "admin-limitations", "evidence-report", "node-infrastructure", "node-database-assignments", "cluster-summary", "cluster-nodes", "cluster-node-detail", "cluster-topology", "cluster-coordination", "cluster-access", "cluster-discovery", "cluster-history", "cluster-limitations"].forEach(id => {
     if (adminNode(id)) adminNode(id).textContent = "Información restringida a administradores.";
   });
-  ["event-result", "access-result", "role-result", "lab-report-status", "evidence-import-status", "admin-global-notice", "incident-scope", "service-check-time", "last-refresh"].forEach(id => { if (adminNode(id)) adminNode(id).textContent = ""; });
-  ["event-editor", "access-form", "role-form", "trace-form", "lab-report-form", "evidence-import-form"].forEach(id => adminNode(id)?.reset());
+  ["event-result", "access-result", "role-result", "lab-report-status", "evidence-import-status", "admin-global-notice", "incident-scope", "service-check-time", "last-refresh", "cluster-announcement-status"].forEach(id => { if (adminNode(id)) adminNode(id).textContent = ""; });
+  ["event-editor", "access-form", "role-form", "trace-form", "lab-report-form", "evidence-import-form", "cluster-announcement-form"].forEach(id => adminNode(id)?.reset());
   if (adminNode("event-editor")) resetEventEditor();
   if (adminNode("lab-scenario")) adminNode("lab-scenario").innerHTML = '<option value="">Sin consultar</option>';
   if (adminNode("evidence-report")) adminNode("evidence-report").hidden = true;
   if (adminNode("lab-initial-status")) adminNode("lab-initial-status").textContent = "Sin captura inicial en esta sesión.";
   if (adminNode("journal-count")) adminNode("journal-count").textContent = "—";
+  ["cluster-observation", "cluster-history-scope", "cluster-lab-observation"].forEach(id => { if (adminNode(id)) adminNode(id).textContent = "Sin observaciones en esta sesión."; });
+  if (adminNode("cluster-notice")) adminNode("cluster-notice").hidden = true;
   document.body.classList.remove("admin-print");
 }
 
 function openAdminSection(section = "summary") {
   if (!adminAllowed()) { clearAdminWorkspace(); return; }
   if (!document.querySelector(`[data-admin-panel="${CSS.escape(section)}"]`)) section = "summary";
+  stopClusterPolling();
   ADMIN_SECTION = section;
   if (CURRENT_VIEW === "admin") history.replaceState(null, "", `#admin/${section}`);
   document.querySelectorAll("[data-admin-section]").forEach(button => {
@@ -79,7 +96,7 @@ function openAdminSection(section = "summary") {
   });
   document.querySelectorAll("[data-admin-panel]").forEach(panel => { panel.hidden = panel.dataset.adminPanel !== section; });
   adminNode("admin-session-note").textContent = "Sesión administradora · acceso verificado por cada servicio";
-  const loaders = {summary: loadAdminSummary, events: loadAdminEvents, sales: loadAdminSales, refunds: loadAdminRefunds, users: loadAdminUsers, services: refreshAdminSnapshot, databases: refreshAdminSnapshot, observability: refreshObservability, lab: refreshLab, incidents: loadAdminIncidents, evidence: loadAdminEvidence};
+  const loaders = {summary: loadAdminSummary, events: loadAdminEvents, sales: loadAdminSales, refunds: loadAdminRefunds, users: loadAdminUsers, cluster: refreshAdminCluster, services: refreshAdminSnapshot, databases: refreshAdminSnapshot, observability: refreshObservability, lab: refreshLab, incidents: loadAdminIncidents, evidence: loadAdminEvidence};
   loaders[section]?.();
 }
 
@@ -229,6 +246,228 @@ async function loadAdminUsers() {
   adminNode("admin-users").innerHTML = result.ok && Array.isArray(result.data) ? adminTable(result.data, [["ID", "id"], ["Nombre", "nombre"], ["Rol", "role"]], "No hay usuarios registrados.") : adminEmpty(adminError(result));
 }
 
+function clusterVisible() {
+  return adminAllowed() && CURRENT_VIEW === "admin" && ADMIN_SECTION === "cluster" && !document.hidden;
+}
+function stopClusterPolling() {
+  clearTimeout(ADMIN_CLUSTER_TIMER); ADMIN_CLUSTER_TIMER = null;
+  ADMIN_CLUSTER_REQUEST++;
+  ADMIN_CLUSTER_CONTROLLER?.abort(); ADMIN_CLUSTER_CONTROLLER = null;
+  ADMIN_CLUSTER_IMPORT_CONTROLLER?.abort(); ADMIN_CLUSTER_IMPORT_CONTROLLER = null;
+}
+function scheduleClusterPoll() {
+  clearTimeout(ADMIN_CLUSTER_TIMER); ADMIN_CLUSTER_TIMER = null;
+  if (clusterVisible()) ADMIN_CLUSTER_TIMER = setTimeout(refreshAdminCluster, ADMIN_CLUSTER_POLL_MS);
+}
+async function clusterFetch(url, token, signal, options = {}) {
+  const controller = new AbortController(), abort = () => controller.abort();
+  signal.addEventListener("abort", abort, {once: true});
+  if (signal.aborted) controller.abort();
+  const timer = setTimeout(abort, 25000);
+  try {
+    const response = await fetch(url, {...options, method: options.method || "GET", headers: {...options.headers, Authorization: `Bearer ${token}`}, signal: controller.signal, cache: "no-store", credentials: "omit", redirect: "error"});
+    let data = null;
+    try { data = await response.json(); } catch (_) { /* Una respuesta incompleta no sustituye la última captura. */ }
+    return {ok: response.ok, status: response.status, data};
+  } catch (_) {
+    return {ok: false, status: 0, error: "El observador no respondió dentro del plazo de consulta."};
+  } finally { clearTimeout(timer); signal.removeEventListener("abort", abort); }
+}
+async function refreshAdminCluster() {
+  if (!clusterVisible() || ADMIN_CLUSTER_CONTROLLER || ADMIN_CLUSTER_IMPORT_CONTROLLER) return;
+  clearTimeout(ADMIN_CLUSTER_TIMER); ADMIN_CLUSTER_TIMER = null;
+  const controller = new AbortController(), identity = adminIdentity(), request = ++ADMIN_CLUSTER_REQUEST;
+  const previousCapture = ADMIN_CLUSTER;
+  ADMIN_CLUSTER_CONTROLLER = controller;
+  const valid = () => !controller.signal.aborted && request === ADMIN_CLUSTER_REQUEST && identity === adminIdentity() && clusterVisible();
+  const sources = [...new Set([CONFIG.COMPRAS_LB_URL, CONFIG.USUARIOS_URL, CONFIG.EVENTOS_URL].filter(Boolean))];
+  let result = {ok: false}, renewed = false, successfulBase = null;
+  adminNode("cluster-observation").textContent = ADMIN_CLUSTER ? `Consultando… Última captura recibida: ${adminDate(ADMIN_CLUSTER.capturado_en)}.` : "Consultando los observadores configurados…";
+  try {
+    for (const base of sources) {
+      if (!valid()) return;
+      const url = `${base.replace(/\/$/, "")}/admin/operaciones/cluster`;
+      result = await clusterFetch(url, ACCESS_TOKEN, controller.signal);
+      if (!valid()) return;
+      if (result.status === 401 && !renewed) {
+        renewed = true;
+        const refresh = await renewAccessToken(5000);
+        if (!valid()) return;
+        if (refresh.ok) result = await clusterFetch(url, ACCESS_TOKEN, controller.signal);
+      }
+      if (!valid()) return;
+      if ([401, 403].includes(result.status)) break;
+      if (adminList(previousCapture?.cluster?.nodos).length && !adminList(result.data?.cluster?.nodos).length) {
+        // Un observador sin inventario vigente no borra las máquinas conocidas.
+        result.ok = false;
+      }
+      if (result.ok && result.data?.cluster && typeof result.data.cluster === "object" && Array.isArray(result.data.componentes)
+          && !(result.data.cluster.observador?.observacion_en_curso && !adminList(result.data.cluster.nodos).length)) { successfulBase = base.replace(/\/$/, ""); break; }
+      result.ok = false;
+    }
+    if (!valid()) return;
+    if (!result.ok || !result.data?.cluster) {
+      ADMIN_CLUSTER_STALE = true;
+      adminNode("cluster-notice").hidden = false;
+      adminNotice("cluster-notice", [401, 403].includes(result.status) ? "La sesión no permite consultar el clúster. Inicia sesión con una cuenta administradora vigente." : "No hay una respuesta actual de los observadores. Las tarjetas conservan la última evidencia recibida; el estado actual es desconocido.", "warning");
+      adminNode("cluster-observation").textContent = `Consulta sin datos actuales: ${new Date().toLocaleString("es-PE")}. ${ADMIN_CLUSTER ? `Última captura: ${adminDate(ADMIN_CLUSTER.capturado_en)}.` : "Todavía no se ha recibido un inventario observado."}`;
+      if (ADMIN_CLUSTER) renderAdminCluster();
+      else adminNode("cluster-summary").innerHTML = adminEmpty("Estado del clúster desconocido. Compras, Usuarios y Eventos ofrecen observadores de solo lectura cuando esta versión está desplegada.");
+      return;
+    }
+    if (ADMIN_CLUSTER?.infraestructura?.despliegue !== result.data.infraestructura?.despliegue) {
+      ADMIN_CLUSTER_EVENTS.clear(); ADMIN_CLUSTER_CANDIDATES.clear(); ADMIN_CLUSTER_LAST_NODES.clear();
+    }
+    ADMIN_CLUSTER = result.data;
+    ADMIN_CLUSTER_STALE = Number(result.data.cluster.observador?.antiguedad_segundos) > 90;
+    ADMIN_CLUSTER_BASE = successfulBase;
+    for (const node of adminList(ADMIN_CLUSTER.cluster.nodos)) {
+      const previous = ADMIN_CLUSTER_LAST_NODES.get(node.id);
+      if (previous && (Date.parse(previous.ultima_respuesta) || 0) > (Date.parse(node.ultima_respuesta) || 0)) {
+        node.ultima_respuesta = previous.ultima_respuesta;
+        node.ultimo_estado_conocido = previous.ultimo_estado_conocido;
+      }
+      if (node.ultima_respuesta) ADMIN_CLUSTER_LAST_NODES.set(node.id, {ultima_respuesta: node.ultima_respuesta, ultimo_estado_conocido: node.ultimo_estado_conocido});
+    }
+    while (ADMIN_CLUSTER_LAST_NODES.size > 32) ADMIN_CLUSTER_LAST_NODES.delete(ADMIN_CLUSTER_LAST_NODES.keys().next().value);
+    for (const event of adminList(result.data.cluster.eventos)) {
+      if (!event || typeof event !== "object") continue;
+      const key = String(event.id || JSON.stringify([event.fecha, event.origen, event.componente, event.estado_anterior, event.estado_actual, event.tipo]));
+      ADMIN_CLUSTER_EVENTS.set(key, event);
+    }
+    while (ADMIN_CLUSTER_EVENTS.size > 200) ADMIN_CLUSTER_EVENTS.delete(ADMIN_CLUSTER_EVENTS.keys().next().value);
+    adminNode("cluster-notice").hidden = true;
+    renderAdminCluster();
+    const observer = result.data.cluster.observador;
+    adminNode("cluster-observation").textContent = `Captura: ${adminDate(result.data.capturado_en)} · Observador: ${observer?.instancia || observer?.id || "No informado"} · Nueva consulta en 30 s mientras esta sección esté visible.`;
+    adminNode("cluster-lab-observation").textContent = `Última captura del Centro de Control: ${adminDate(result.data.capturado_en)}. Estado observado: ${clusterStateLabel(result.data.cluster.estado)}. Consulta el detalle de escritura y quórum antes de interpretar las proyecciones.`;
+    if (result.data.infraestructura) renderNodeInfrastructure(result.data.infraestructura);
+  } catch (_) {
+    if (!valid()) return;
+    ADMIN_CLUSTER = previousCapture;
+    ADMIN_CLUSTER_STALE = true;
+    adminNode("cluster-notice").hidden = false;
+    adminNotice("cluster-notice", "La captura no pudo interpretarse. Se conserva la última observación; el estado actual es desconocido.", "warning");
+    adminNode("cluster-observation").textContent = `Captura sin datos interpretables. Última observación válida: ${adminDate(previousCapture?.capturado_en)}.`;
+    if (previousCapture) renderAdminCluster();
+  } finally {
+    if (ADMIN_CLUSTER_CONTROLLER === controller) { ADMIN_CLUSTER_CONTROLLER = null; scheduleClusterPoll(); }
+  }
+}
+function clusterStateLabel(value) {
+  return ({operativo: "Operativo", activo: "Activo", saludable: "Saludable", healthy: "Saludable", degradado: "Degradado", degraded: "Degradado", no_disponible: "No disponible", caido: "No disponible", unavailable: "No disponible", desconocido: "Desconocido", unknown: "Desconocido"})[value] || value || "Desconocido";
+}
+function clusterStateClass(value) {
+  return ({operativo: "healthy", activo: "healthy", saludable: "healthy", healthy: "healthy", degradado: "degraded", degraded: "degraded", no_disponible: "unavailable", caido: "unavailable", unavailable: "unavailable"})[value] || "unknown";
+}
+function clusterElapsed(value) {
+  if (!value || !Number.isFinite(Date.parse(value))) return "Sin respuesta registrada";
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1000));
+  return seconds < 60 ? `Hace ${seconds} s` : seconds < 3600 ? `Hace ${Math.floor(seconds / 60)} min` : `Hace ${Math.floor(seconds / 3600)} h`;
+}
+function clusterSafeLink(value, label = value) {
+  try {
+    const parsed = new URL(value);
+    if (["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password) return `<a href="${adminText(parsed.href)}" target="_blank" rel="noopener noreferrer">${adminText(label)}</a>`;
+  } catch (_) { /* Se muestran direcciones no utilizables como texto. */ }
+  return adminText(label || "Sin dirección configurada");
+}
+function clusterAdmission(node) {
+  const admission = node.admision || {};
+  return `<div class="cluster-stages">${[["configurado", "Configurado"], ["detectado", "Detectado"], ["identidad_validada", "Identidad validada"], ["autorizado", "Autorizado"], ["incorporado", "Incorporado"], ["activacion_verificada", "Activación verificada"]].map(([key, label]) => `<span class="${admission[key] === true ? "confirmed" : ""}">${adminText(label)}: ${admission[key] === true ? "sí" : admission[key] === false ? "no" : "sin evidencia"}</span>`).join("")}</div>`;
+}
+function renderClusterEvents(events) {
+  return events.map(event => `<article class="admin-timeline-entry"><time>${adminText(adminDate(event.fecha))}</time><h4>${adminText(event.tipo || "Cambio observado")} · ${adminText(event.componente || event.nodo || "Clúster")}</h4><p>${adminText(event.descripcion || "Sin detalle adicional")}</p>${event.estado_anterior || event.estado_actual ? `<small>${adminText(clusterStateLabel(event.estado_anterior))} → ${adminText(clusterStateLabel(event.estado_actual))}</small>` : ""}<small>Origen: ${adminText(event.origen || "No informado")}</small></article>`).join("") || adminEmpty("No hay cambios observados disponibles. Repetir un sondeo sin cambios no genera un evento nuevo.");
+}
+function renderAdminCluster() {
+  if (!ADMIN_CLUSTER || !adminAllowed()) return;
+  const cluster = ADMIN_CLUSTER.cluster, summary = cluster.resumen || {}, nodes = adminList(cluster.nodos), stale = ADMIN_CLUSTER_STALE;
+  const counts = [["Estado global", stale ? "Desconocido" : clusterStateLabel(cluster.estado), stale ? `Último observado: ${clusterStateLabel(cluster.estado)}` : "Según la evidencia del observador"], ["Nodos configurados", summary.nodos_configurados ?? "—", "Inventario declarado"], ["Nodos que responden", summary.nodos_responden ?? "—", stale ? "Última captura, sin vigencia actual" : "Respuesta observada"], ["Sin respuesta / desconocidos", `${summary.nodos_no_disponibles ?? "—"} / ${summary.nodos_desconocidos ?? "—"}`, "No equivale a apagado físico"], ["Gateways disponibles", summary.gateways_disponibles ?? "—", "Disponibilidad observada de la ruta"]];
+  for (const replica of adminList(summary.replicas)) counts.push([`Réplicas ${replica.servicio}`, `${replica.activas ?? "—"} / ${replica.configuradas ?? "—"}`, "Saludables observadas / configuradas"]);
+  adminNode("cluster-summary").innerHTML = counts.map(([label, value, note]) => `<div class="admin-stat"><span>${adminText(label)}</span><strong>${adminText(value)}</strong><small>${adminText(note)}</small></div>`).join("");
+  if (!nodes.some(node => node.id === ADMIN_CLUSTER_SELECTED)) ADMIN_CLUSTER_SELECTED = nodes[0]?.id || null;
+  adminNode("cluster-nodes").innerHTML = nodes.map(node => `<article class="cluster-node state-${stale ? "unknown" : clusterStateClass(node.estado)} ${node.id === ADMIN_CLUSTER_SELECTED ? "selected" : ""}"><h4>${adminText(node.id)}</h4>${adminState(stale ? "Estado actual desconocido" : clusterStateLabel(node.estado))}<p>${adminText(node.address)} · ${adminText(({fedora: "Fedora", wsl2: "Windows / WSL 2"})[node.platform] || node.platform)}<br>Dominio físico: ${adminText(node.failure_domain)}</p>${clusterAdmission(node)}<small>Asignados: ${adminText(adminList(node.roles).join(" · ") || "Sin aplicaciones asignadas")}</small><small>Respuestas HTTP: ${adminText(node.respuestas_http ?? "—")} / ${adminText(node.sondas ?? "—")} sondas</small><small>Última respuesta: ${adminText(adminDate(node.ultima_respuesta))} · ${adminText(clusterElapsed(node.ultima_respuesta))}</small><small>Último estado conocido: ${adminText(clusterStateLabel(node.ultimo_estado_conocido))}</small><small>Presupuesto declarado: ${adminText(node.resources?.cpus ?? "—")} CPU · ${adminText(node.resources?.memory_mb ?? "—")} MiB</small><button type="button" class="button button-outline" data-cluster-node="${adminText(node.id)}" aria-controls="cluster-node-detail" aria-pressed="${node.id === ADMIN_CLUSTER_SELECTED}">Ver computadora</button></article>`).join("") || adminEmpty("No hay un inventario multinodo activo disponible en este observador. Los despliegues anteriores conservan su vista de Microservicios y salud.");
+  adminNode("cluster-nodes").querySelectorAll("[data-cluster-node]").forEach(button => button.addEventListener("click", () => {
+    ADMIN_CLUSTER_SELECTED = button.dataset.clusterNode; renderAdminCluster();
+    const target = adminNode("cluster-node-detail"); target.tabIndex = -1; target.focus({preventScroll: true}); target.scrollIntoView({block: "nearest", behavior: "smooth"});
+  }));
+  renderClusterNodeDetail(nodes.find(node => node.id === ADMIN_CLUSTER_SELECTED));
+  renderClusterTopology(nodes, adminList(cluster.bases));
+  const coordinator = cluster.coordinador || {};
+  adminNode("cluster-coordination").innerHTML = adminFacts([["Coordinador", coordinator.configurado ? coordinator.estado : "No configurado"], ["Quórum de consenso observado", coordinator.quorum_observado ?? "Sin evidencia"], ["Promoción automática", coordinator.promocion_automatica === true ? "Habilitada según observador" : "Deshabilitada"], ["Failover automático", coordinator.failover_bloqueado === false ? "Consultar garantías del coordinador" : "Bloqueado"]]) + `<p class="field-help">El quórum de confirmación WAL no elige líderes. La recuperación manual necesita aislamiento del primario anterior y una única decisión de promoción.</p>${adminList(coordinator.motivos).map(reason => `<p class="field-help">${adminText(reason)}</p>`).join("")}`;
+  const access = cluster.acceso || {};
+  adminNode("cluster-access").innerHTML = adminFacts([["Modalidad declarada", access.modo || "URLs alternativas"], ["Acceso estable verificado", access.verificado === true ? "Sí, según evidencia del observador" : "No verificado"]]) + (access.url_estable ? `<p>${clusterSafeLink(access.url_estable, access.hostname || access.url_estable)}</p>` : `<p class="field-help">No hay una dirección estable declarada.</p>`) + `<div class="cluster-access-list">${adminList(access.alternativas).map(point => `<div>${clusterSafeLink(point.url, `${point.node} · ${point.preferred ? "preferido" : "alternativo"}`)}<small class="field-help"> ${adminText(point.url)}</small></div>`).join("") || adminEmpty("Sin gateways alternativos configurados.")}</div><p class="field-help">Las URLs alternativas requieren cambiar de acceso manualmente y pueden pedir iniciar sesión de nuevo. Su presencia en el inventario no certifica que sean accesibles.</p>`;
+  renderClusterDiscovery(cluster.descubrimiento || {});
+  const events = [...ADMIN_CLUSTER_EVENTS.values()].sort((a, b) => (Date.parse(b.fecha) || 0) - (Date.parse(a.fecha) || 0));
+  adminNode("cluster-history").innerHTML = renderClusterEvents(events);
+  adminNode("cluster-history-scope").textContent = `Observador: ${cluster.observador?.instancia || cluster.observador?.id || "No informado"}. Historial ${cluster.observador?.historial_persistente === true ? "persistente según la fuente" : "en memoria por proceso; puede reiniciarse o variar al cambiar de réplica"}. Esta sesión reúne hasta 200 eventos por identificador, sin convertir transiciones en un failover confirmado.`;
+  adminNode("cluster-limitations").innerHTML = adminList(cluster.limitaciones).map(item => `<p class="field-help">${adminText(item)}</p>`).join("") || `<p class="field-help">Las observaciones no certifican alta disponibilidad física. CPU, RAM y capacidad restante requieren una fuente autorizada de métricas.</p>`;
+}
+
+function renderClusterNodeDetail(node) {
+  const target = adminNode("cluster-node-detail");
+  if (!node) { target.innerHTML = adminEmpty("No hay una computadora configurada que seleccionar."); return; }
+  const bases = adminList(node.bases), metrics = node.metricas_host;
+  const components = adminList(node.componentes), known = new Map(adminList(ADMIN_CLUSTER.componentes).map(component => [component.id, component]));
+  const dependencies = [...new Set(components.flatMap(component => adminList(component.dependencias)))];
+  const state = ADMIN_CLUSTER_STALE ? "Actual desconocido; se conserva la última captura" : clusterStateLabel(node.estado);
+  target.innerHTML = `<h3>Computadora ${adminText(node.id)}</h3>${adminFacts([["Estado de la observación", state], ["Último sondeo", adminDate(node.ultima_observacion)], ["Última respuesta válida", adminDate(node.ultima_respuesta)], ["Antigüedad de esa respuesta", clusterElapsed(node.ultima_respuesta)], ["Versión observada", node.version_despliegue || "Sin evidencia de versión ejecutada"], ["Versión declarada", node.version_declarada || "No declarada"], ["Roles PostgreSQL configurados", bases.map(base => `${base.base}: ${base.rol_configurado}`).join(" · ") || "Ninguno"]])}<h4>Recursos de la computadora</h4>${adminFacts([["CPU / RAM declaradas", `${node.resources?.cpus ?? "—"} CPU · ${node.resources?.memory_mb ?? "—"} MiB`], ["Límites de contenedores", `${node.reserved_resources?.cpus ?? "—"} CPU · ${node.reserved_resources?.memory_mb ?? "—"} MiB`]])}${metrics && metrics.fuente && metrics.capturado_en ? `<p class="field-help">Fuente autorizada: ${adminText(metrics.fuente)} · ${adminText(adminDate(metrics.capturado_en))}</p>${adminFacts([["CPU observada", Number.isFinite(metrics.cpu_percent) ? `${metrics.cpu_percent} %` : "Sin medición"], ["RAM utilizada", Number.isFinite(metrics.memory_used_bytes) ? `${metrics.memory_used_bytes} bytes` : "Sin medición"], ["Almacenamiento utilizado", Number.isFinite(metrics.storage_used_bytes) ? `${metrics.storage_used_bytes} bytes` : "Sin medición"]])}` : `<p class="field-help">CPU, RAM y almacenamiento reales: sin una fuente autorizada de métricas. Los presupuestos del inventario no miden utilización ni capacidad libre.</p>`}<h4>Servicios y réplicas asignadas</h4><div class="service-grid">${renderAdminComponents(components)}</div><h4>Dependencias críticas observadas</h4><div class="table-scroll">${adminTable(dependencies.map(id => ({id, estado: known.get(id)?.estado || "desconocido", detalle: known.get(id)?.detalle || "No hay una comprobación directa de esta dependencia en la captura"})), [["Dependencia", "id"], ["Estado de la captura", row => clusterStateLabel(row.estado)], ["Alcance", "detalle"]], "No hay dependencias identificadas en los componentes recibidos.")}</div><h4>Últimos cambios de esta computadora</h4><div class="admin-timeline">${renderClusterEvents(adminList(node.eventos).slice(0, 12))}</div>`;
+}
+function renderClusterTopology(nodes, bases) {
+  const graph = nodes.map(node => `<section class="cluster-node state-${ADMIN_CLUSTER_STALE ? "unknown" : clusterStateClass(node.estado)}"><h4>${adminText(node.id)}</h4><small>${adminText(node.failure_domain)} · ${adminText(ADMIN_CLUSTER_STALE ? "Última captura, estado actual desconocido" : clusterStateLabel(node.estado))}</small><ul>${adminList(node.componentes).filter(component => component.tipo !== "ruta").map(component => `<li>${adminText(component.nombre || component.id)} · ${adminState(clusterStateLabel(component.estado))}</li>`).join("") || `<li>Sin servicios HTTP observados</li>`}${adminList(node.bases).map(base => `<li>PostgreSQL ${adminText(base.base)} · ${adminText(base.rol_configurado)} <small>(configurado)</small></li>`).join("")}</ul></section>`).join("");
+  const replication = bases.map(base => {
+    const primary = base.primario_observado, quorum = base.quorum_wal || {}, writes = base.escritura || {};
+    const observed = base.posible_conflicto_primarios ? "ALERTA: se observaron identidades primarias distintas. No promover; requiere aislamiento y revisión coordinada." : primary ? `${base.discordancia_rol ? "Discordancia con el inventario · " : ""}${primary.nodo || "Nodo no identificado"} · sistema ${primary.identificador_sistema || "no informado"} · ${primary.direccion || "dirección no informada"}:${primary.puerto || "—"} · timeline ${primary.timeline ?? "—"}` : "Sin identidad de primario confirmada";
+    return `<article class="cluster-replication"><h4>PostgreSQL · ${adminText(base.base)}</h4><p>Primario configurado: <strong>${adminText(base.primario_configurado)}</strong> → ${adminText(adminList(base.standbys).map(standby => standby.nodo).join(" · ") || "Sin standbys configurados")}</p>${adminFacts([["Primario observado", observed], ["Fuente de identidad", primary?.fuente || "Sin evidencia"], ["Política WAL declarada", `${base.replicacion_configurada || "No declarada"} · confirmaciones ${base.quorum_configurado ?? "—"}`], ["Quórum WAL observado", quorum.observado ?? "Desconocido"], ["Estado de confirmaciones WAL", quorum.estado || "Sin evidencia"], ["Capacidad de escritura", writes.estado || "No comprobada"]])}<p class="field-help">${adminText(writes.detalle || "Una consulta de lectura no demuestra que puedan confirmarse escrituras.")}</p><div class="table-scroll">${adminTable(adminList(base.standbys), [["Standby configurado", "nodo"], ["Canal WAL observado", row => row.estado_canal || "Sin evidencia"], ["Estado síncrono", row => row.sync_state || "Sin evidencia"], ["Lag de replay", row => row.replay_lag_seconds == null && row.replay_lag == null ? "Sin medición" : `${row.replay_lag_seconds ?? row.replay_lag}${row.replay_lag_seconds == null ? "" : " s"}`], ["Posición WAL replay", row => row.replay_lsn || "Sin posición observada"]], "No hay standbys en esta asignación.")}</div></article>`;
+  }).join("");
+  adminNode("cluster-topology").innerHTML = `<div class="cluster-topology-grid">${graph}</div>${replication || adminEmpty("No hay asignaciones PostgreSQL disponibles.")}`;
+}
+function renderClusterDiscovery(discovery) {
+  for (const candidate of adminList(discovery.candidatos)) {
+    if (candidate?.id) ADMIN_CLUSTER_CANDIDATES.set(candidate.id, candidate);
+  }
+  while (ADMIN_CLUSTER_CANDIDATES.size > 64) ADMIN_CLUSTER_CANDIDATES.delete(ADMIN_CLUSTER_CANDIDATES.keys().next().value);
+  const candidates = [...ADMIN_CLUSTER_CANDIDATES.values()];
+  adminNode("cluster-discovery").innerHTML = `<p class="field-help">${adminText(discovery.alcance || "Los candidatos se mantienen en memoria del observador. Cambiar de réplica o reiniciarla puede cambiar esta lista; esta sesión conserva los anuncios que recibió.")}</p><p class="field-help">Verifica la huella por un canal independiente, autoriza la identidad en el inventario y regenera la configuración. Una firma válida demuestra posesión de la clave; por sí sola no autoriza al equipo.</p>${candidates.map(candidate => {
+    const expired = candidate.estado === "expirado" || (candidate.expira_en && Date.parse(candidate.expira_en) < Date.now());
+    // La caché del navegador no conserva autorizaciones de un inventario viejo.
+    const configured = adminList(ADMIN_CLUSTER?.cluster?.nodos).find(node => node.id === candidate.node_id);
+    candidate.autorizado = !!configured && configured.identity_fingerprint === candidate.id;
+    candidate.incorporado = candidate.autorizado;
+    candidate.identidad_validada = candidate.autorizado && !expired && candidate.firma_valida === true;
+    candidate.estado = expired ? "expirado" : candidate.autorizado ? "autorizado_por_inventario" : "pendiente_autorizacion";
+    return `<article class="node-projection"><h4>${adminText(candidate.node_id)} · ${adminText(expired ? "Anuncio expirado" : candidate.estado || "Pendiente de revisión")}</h4>${adminFacts([["Dirección declarada", candidate.address], ["Plataforma / dominio físico", `${candidate.platform || "—"} · ${candidate.failure_domain || "—"}`], ["Huella de identidad", candidate.id], ["Firma criptográfica válida", candidate.firma_valida === true ? "Sí" : "No confirmada"], ["Identidad validada", candidate.identidad_validada === true ? "Sí" : "No"], ["Autorizado / incorporado", `${candidate.autorizado === true ? "Sí" : "No"} / ${candidate.incorporado === true ? "Sí" : "No"}`], ["Compatibilidad declarada", candidate.compatibilidad?.estado || "Pendiente"], ["Recursos anunciados", `${candidate.resources?.cpus ?? "—"} CPU · ${candidate.resources?.memory_mb ?? "—"} MiB`], ["Versión anunciada", candidate.release || "No declarada"], ["Recibido / caduca", `${adminDate(candidate.recibido_en)} / ${adminDate(candidate.expira_en)}`]])}${adminList(candidate.compatibilidad?.motivos).map(reason => `<p class="field-help">${adminText(reason)}</p>`).join("")}<p class="field-help">${adminText(candidate.alcance || "Anuncio conservado para revisión; no acredita conectividad ni capacidad física.")}</p></article>`;
+  }).join("") || adminEmpty("No hay candidatos anunciados a este observador.")}<p class="field-help">Pasos separados: anuncio firmado → validación de identidad → autorización administrativa → validación de recursos y compatibilidad → incorporación por inventario → activación operativa autorizada.</p>`;
+}
+async function submitClusterAnnouncement(event) {
+  event.preventDefault();
+  const form = event.currentTarget, file = adminNode("cluster-announcement-file").files[0];
+  await adminBusy(form.querySelector("button"), async () => {
+    if (!clusterVisible() || !ADMIN_CLUSTER_BASE) { adminNotice("cluster-announcement-status", "Consulta primero un observador disponible del clúster.", "warning"); return; }
+    if (!file || file.size > 16384) { adminNotice("cluster-announcement-status", "Selecciona un anuncio firmado JSON de hasta 16 KiB.", "warning"); return; }
+    const identity = adminIdentity();
+    let payload;
+    try { payload = JSON.parse(await file.text()); } catch (_) { if (clusterVisible() && identity === adminIdentity()) adminNotice("cluster-announcement-status", "El archivo no contiene un JSON válido.", "error"); return; }
+    if (!clusterVisible() || identity !== adminIdentity()) return;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) { adminNotice("cluster-announcement-status", "El anuncio debe contener un objeto JSON firmado.", "error"); return; }
+    stopClusterPolling();
+    const controller = new AbortController(), base = ADMIN_CLUSTER_BASE;
+    ADMIN_CLUSTER_IMPORT_CONTROLLER = controller;
+    try {
+      const result = await clusterFetch(`${base}/admin/operaciones/cluster/anuncios`, ACCESS_TOKEN, controller.signal, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+      if (controller.signal.aborted || identity !== adminIdentity() || !clusterVisible()) return;
+      if (!result.ok || !result.data?.candidato) { adminNotice("cluster-announcement-status", adminError(result, "El observador no pudo admitir el anuncio para revisión."), "error"); return; }
+      const candidate = result.data.candidato;
+      if (candidate.id) ADMIN_CLUSTER_CANDIDATES.set(candidate.id, candidate);
+      renderClusterDiscovery(ADMIN_CLUSTER?.cluster?.descubrimiento || {});
+      form.reset();
+      adminNotice("cluster-announcement-status", "Anuncio recibido para revisión. No se ha autorizado ni activado una computadora. El registro pertenece a la memoria del observador que respondió.", "success");
+    } finally {
+      if (ADMIN_CLUSTER_IMPORT_CONTROLLER === controller) { ADMIN_CLUSTER_IMPORT_CONTROLLER = null; scheduleClusterPoll(); }
+    }
+  });
+}
+
 function renderAdminComponents(components, compact = false) {
   return adminList(components).map(component => {
     const states = {saludable: "healthy", healthy: "healthy", ok: "healthy", degradado: "degraded", degraded: "degraded", caido: "unavailable", unavailable: "unavailable"};
@@ -268,7 +507,8 @@ function renderNodeInfrastructure(infrastructure) {
     ${projections.map(projection => `<details class="node-projection"><summary>${adminText(projection.tipo === "nodo" ? "Nodo" : "Dominio físico declarado")} ${adminText(projection.objetivo)}</summary>
       <p>Excluidos: ${adminText(list(projection.nodos_excluidos))}</p>
       <div class="table-scroll">${adminTable(adminList(projection.servicios), [["Servicio", "servicio"], ["Instancias restantes", row => list(row.instancias_configuradas_restantes)], ["Saludables observadas", row => list(row.observadas_saludables_ahora)], ["Continuidad", "estado_proyectado"], ["Dependencias pendientes", row => list(row.dependencias_pendientes)]])}</div>
-      <div class="table-scroll">${adminTable(adminList(projection.bases), [["Base", "base"], ["Primario restante", row => row.primario_restante || "Ninguno"], ["Standbys restantes", row => list(row.standbys_restantes)], ["Escrituras", "estado_escrituras"], ["Límite", "riesgo_datos"]])}</div>
+      <div class="table-scroll">${adminTable(adminList(projection.bases), [["Base", "base"], ["Primario restante", row => row.primario_restante || "Ninguno"], ["Standbys restantes", row => list(row.standbys_restantes)], ["Escrituras proyectadas", "estado_escrituras"], ["Escritura en la captura actual", row => row.escritura_observada_actual || "No comprobada"], ["Quórum WAL en la captura actual", row => `${row.quorum_wal_actual?.estado || "Desconocido"} · ${row.quorum_wal_actual?.observado ?? "Sin medición"}`], ["Recuperación manual proyectada", row => row.recuperacion_manual_proyectada ? "Requerida" : "Condicionada a las dependencias"], ["Límite", "riesgo_datos"]])}</div>
+      <p class="field-help">Escritura y confirmadores WAL actuales pertenecen a la captura, no al resultado de esa pérdida hipotética. Quórum de elección: sin coordinador configurado.</p>
       <p>Accesos restantes:<br>${access(projection.accesos_restantes)}</p></details>`).join("")}</article>`;
   databases.innerHTML = `<article class="workspace-card"><h3>Asignación PostgreSQL del inventario</h3><div class="table-scroll">${adminTable(adminList(infrastructure.bases), [["Base", "base"], ["Primario declarado", "primario_configurado"], ["Política WAL", row => `${row.replicacion_configurada} · quórum ${row.quorum_configurado}`], ["Roles observados por API", row => list(row.roles_observados)], ["Standbys / canal observado", row => adminList(row.standbys).map(replica => `${replica.nodo}: ${replica.estado_canal || "sin verificar"} (${replica.sync_state || "sin estado síncrono"})`).join(" · ") || "Ninguno"]])}</div><p class="field-help">La ubicación del primario es declarada; el diagnóstico API no acredita en qué máquina está conectado. Un canal WAL no certifica salud física, ausencia de pérdida ni fencing.</p></article>`;
 }
@@ -505,7 +745,7 @@ function exportObservedSnapshot() {
 function initializeAdmin() {
   if (ADMIN_INITIALIZED) return; ADMIN_INITIALIZED = true;
   document.querySelectorAll("[data-admin-section]").forEach(button => button.addEventListener("click", () => openAdminSection(button.dataset.adminSection)));
-  const refreshes = {"admin-refresh-summary": loadAdminSummary, "admin-refresh-events": loadAdminEvents, "admin-refresh-sales": loadAdminSales, "admin-refresh-refunds": loadAdminRefunds, "admin-refresh-users": loadAdminUsers, "admin-refresh-services": refreshAdminSnapshot, "refresh-distributed": refreshAdminSnapshot, "refresh-observability": refreshObservability, "refresh-audit": loadAudit, "refresh-journal": loadJournal, "lab-refresh": refreshLab, "lab-capture-initial": captureLabInitial, "admin-refresh-incidents": loadAdminIncidents, "admin-refresh-evidence": loadAdminEvidence};
+  const refreshes = {"admin-refresh-summary": loadAdminSummary, "admin-refresh-events": loadAdminEvents, "admin-refresh-sales": loadAdminSales, "admin-refresh-refunds": loadAdminRefunds, "admin-refresh-users": loadAdminUsers, "admin-refresh-cluster": refreshAdminCluster, "admin-refresh-services": refreshAdminSnapshot, "refresh-distributed": refreshAdminSnapshot, "refresh-observability": refreshObservability, "refresh-audit": loadAudit, "refresh-journal": loadJournal, "lab-refresh": refreshLab, "lab-capture-initial": captureLabInitial, "admin-refresh-incidents": loadAdminIncidents, "admin-refresh-evidence": loadAdminEvidence};
   Object.entries(refreshes).forEach(([id, handler]) => adminNode(id).addEventListener("click", event => adminBusy(event.currentTarget, handler)));
   adminNode("event-editor-reset").addEventListener("click", resetEventEditor);
   adminNode("event-editor").addEventListener("submit", submitAdminEvent);
@@ -513,6 +753,7 @@ function initializeAdmin() {
   adminNode("lab-report-form").addEventListener("submit", submitLabReport);
   adminNode("lab-scenario").addEventListener("change", renderLabScenario);
   adminNode("evidence-import-form").addEventListener("submit", importAdminEvidence);
+  adminNode("cluster-announcement-form").addEventListener("submit", submitClusterAnnouncement);
   adminNode("lab-export-observation").addEventListener("click", exportObservedSnapshot);
   adminNode("admin-sales-event").addEventListener("change", () => { ["admin-sales", "admin-orders", "admin-tickets"].forEach(id => ADMIN_PAGES.delete(id)); loadAdminSales(); });
   adminNode("access-form").addEventListener("submit", event => {
@@ -537,4 +778,9 @@ function initializeAdmin() {
     });
   });
   window.addEventListener("afterprint", () => document.body.classList.remove("admin-print"));
+  document.addEventListener("visibilitychange", () => { if (clusterVisible()) refreshAdminCluster(); else stopClusterPolling(); });
+  const clusterViewObserver = new MutationObserver(() => { if (clusterVisible()) refreshAdminCluster(); else stopClusterPolling(); });
+  clusterViewObserver.observe(adminNode("view-admin"), {attributes: true, attributeFilter: ["class"]});
+  window.addEventListener("pagehide", stopClusterPolling);
+  window.addEventListener("pageshow", () => { if (clusterVisible()) refreshAdminCluster(); });
 }

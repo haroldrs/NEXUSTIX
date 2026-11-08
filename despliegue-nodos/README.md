@@ -1,7 +1,8 @@
-# NEXUSTIX por inventario: 1, 2, 3 o más computadoras
+# NEXUSTIX por inventario: 1 a 32 computadoras
 
-Ruta nueva e independiente de `docker-compose.yml`, `despliegue-pc` y
-`despliegue-vm`. **Implementación preparada, no ejecutada ni probada en esta
+Evolución del generador e inventario existentes en esta carpeta, compatible con
+las rutas `docker-compose.yml`, `despliegue-pc` y `despliegue-vm`.
+**Implementación preparada, no ejecutada ni probada en esta
 entrega.** No se iniciaron contenedores, no se modificaron bases, firewall ni
 hosts; no se tocaron staging ni laboratorio. Los comandos siguientes son para
 que el operador los ejecute cuando autorice la preparación o el despliegue.
@@ -25,9 +26,58 @@ Cada dominio conserva **una base lógica**: su primario y sus copias físicas
 WAL contienen el mismo conjunto de datos, con posible retraso. Las réplicas API
 comparten esa base; no son bases independientes que después se fusionan.
 
-## Preparar archivos para 1, 2, 3 y 4 nodos
+## Aplicaciones espejo y nodos especializados
 
-Requisitos para preparar: Python 3.10+, PyYAML 6 y OpenSSL (o `cryptography`).
+Los `roles` manuales de cada nodo siguen funcionando. Para ejecutar frontend,
+gateway, Usuarios, Eventos y Compras simultáneamente en tres nodos seleccionados,
+agregue al mismo inventario:
+
+```yaml
+applications:
+  mirror_nodes: [pc1, pc2, pc3]
+  replicas: {frontend: 3, gateway: 3, usuarios: 3, eventos: 3, compras: 3}
+```
+
+Esos IDs deben existir en `nodes`. El generador aplica, en este orden:
+
+1. Los `roles` manuales de cada nodo.
+2. `mirror_nodes`, que suma las cinco aplicaciones a los nodos seleccionados.
+3. `placements`, si existe, que **sustituye** la ubicación de cada rol indicado.
+4. `replicas`, si existe, que exige el número exacto de nodos asignados por rol.
+
+Por ejemplo, en un inventario con cinco nodos:
+
+```yaml
+applications:
+  mirror_nodes: [pc1, pc2, pc3]
+  placements:
+    compras: [pc2, pc3, pc4]
+  replicas:
+    compras: 3
+```
+
+Hay como máximo una instancia de cada rol por nodo. `replicas` no es un
+planificador: si el conteo no coincide con las ubicaciones, la preparación falla
+en vez de elegir una PC automáticamente. Se comprueban presupuestos declarados,
+puertos y dominios de fallo después de resolver los roles efectivos.
+
+PostgreSQL se asigna exclusivamente en `databases`; el modo espejo no crea
+primarios adicionales. Las API comparten las mismas tres bases lógicas y secretos
+de instalación. Se conservan los mecanismos de idempotencia, Saga, outbox/inbox y
+recuperación del negocio. HAProxy reparte tráfico entre réplicas ya desplegadas;
+no reubica contenedores cuando se pierde una PC.
+
+`examples/3-espejo.yml` corresponde a Fedora `pc1` y Windows/WSL2 `pc2` y `pc3`:
+cada una ejecuta las cinco aplicaciones, un primario distinto y dos standbys.
+`examples/5-mixto.yml` añade un nodo de aplicaciones especializado y otro dedicado
+a PostgreSQL. Para 6–32 nodos, agregue entradas y asigne roles, espejo o ubicaciones
+en el mismo YAML, manteniendo la capacidad y redundancia requeridas por el perfil.
+
+## Preparar archivos para 1, 2, 3, 4 y más nodos
+
+Requisitos para preparar: Python 3.10+, PyYAML 6 y `cryptography` (versiones en
+`requirements.txt`). OpenSSL sigue siendo una alternativa del generador JWT;
+los anuncios individuales Ed25519 utilizan `cryptography`.
 Desde la raíz del repositorio, usando un entorno Python elegido por el operador:
 
 ```bash
@@ -45,6 +95,8 @@ instalación. El destino debe ser nuevo y quedar fuera del repositorio.
 | 2 | `cp despliegue-nodos/examples/2-distribuido.yml inventario.yml` | `python3 despliegue-nodos/nodos.py preparar inventario.yml "$HOME/.config/nexustix/nodos-dos-v1"` |
 | 3 | `cp despliegue-nodos/examples/3-ha-preparada.yml inventario.yml` | `python3 despliegue-nodos/nodos.py preparar inventario.yml "$HOME/.config/nexustix/nodos-tres-v1"` |
 | 4 | `cp despliegue-nodos/examples/4-ha-heterogenea.yml inventario.yml` | `python3 despliegue-nodos/nodos.py preparar inventario.yml "$HOME/.config/nexustix/nodos-cuatro-v1"` |
+| 3 espejo (PC1/PC2/PC3) | `cp despliegue-nodos/examples/3-espejo.yml inventario.yml` | `python3 despliegue-nodos/nodos.py preparar inventario.yml "$HOME/.config/nexustix/espejo-tres-v1"` |
+| 5 mixtos | `cp despliegue-nodos/examples/5-mixto.yml inventario.yml` | `python3 despliegue-nodos/nodos.py preparar inventario.yml "$HOME/.config/nexustix/mixto-cinco-v1"` |
 
 El YAML no contiene contraseñas. `preparar` sólo lee configuración y escribe una
 entrega nueva: crea claves JWT, credenciales de bases/replicación/administrador y
@@ -56,9 +108,11 @@ Contenido de la entrega:
 
 ```text
 entrega/
+  inventory-source.yml        # YAML fuente, conserva roles declarados y comentarios
   inventory.yml               # inventario normalizado
   installation.json           # identidad e historial de generaciones
   access-points.json           # URL preferida y alternativas
+  stable-access.json           # acceso externo declarado, sin certificación física
   master/                     # claves de la instalación: NO distribuir
   equipo-a/
     compose.yml
@@ -91,6 +145,9 @@ se envían ni se actualizan automáticamente.
   eso no demuestra que sean accesibles desde otras PC. NAT, modo mirrored,
   VPN, firewall Windows y política de Docker Desktop deben comprobarse allí.
   No se crean `portproxy`, IP virtuales ni reglas automáticamente.
+- **Otro Linux (`platform: linux`):** usa enlace a la dirección LAN declarada,
+  como Fedora. Requiere Docker/Compose y revisión de permisos de montaje según
+  su distribución; no supone que estén instalados ni adapta el host.
 - Use direcciones estables. Cada `docker_subnet` debe evitar las redes LAN,
   VPN y otros puentes Docker del equipo. El generador comprueba solapamientos
   declarados, no inspecciona rutas del host. Para destinos locales usa DNS
@@ -141,11 +198,39 @@ router interno para llamadas entre servicios sin depender del gateway principal.
 No hay reintento automático de escrituras en HAProxy; se conserva la idempotencia
 del negocio. Las peticiones en vuelo pueden fallar.
 
+Los gateways nuevos añaden pools exclusivos de observación para el Centro de
+Control, comprobados mediante `/health/observador` y con afinidad por IP de
+cliente. Esto permite observar una API ya iniciada aunque falle su DB, con JWT
+administrativo vigente, sin enviar tráfico de negocio a un backend no preparado.
+No se cambian los puertos. Ver [límites y anuncios firmados](../docs/CONTROL_CLUSTER.md).
+
 Si falla el gateway preferido, el usuario abre explícitamente otra URL de
 `access-points.json`, por ejemplo `http://192.168.50.12:8080`. Frontend y API
 utilizan el nuevo host. No hay VIP, redirección desde una máquina apagada ni
 transferencia de cookies entre hosts: puede necesitar iniciar sesión de nuevo.
 Conserve las URL también fuera del portal, porque el portal principal puede caer.
+
+Se puede preparar un nombre estable para infraestructura externa ya planificada:
+
+```yaml
+access:
+  mode: external_dns  # También external_proxy; por defecto: manual.
+  hostname: nexustix.lan
+  failure_domains: [infra-acceso-a, infra-acceso-b]
+```
+
+Esta declaración exige al menos dos dominios de infraestructura de acceso y
+gateways en dos dominios físicos. Genera las URLs y permite el origen estable en
+CORS; **no instala ni comprueba DNS, proxy, certificados o conmutación**. Los
+dominios deben representar infraestructura real prevista, no nombres inventados
+para pasar la validación. `stable-access.json` conserva `verified: false` y
+`automatic_switch_verified: false`.
+
+El modo externo usa HTTP y los mismos puertos de portal y las tres API. Un proxy
+debe enrutar los cuatro, conservando las rutas `/auth`; servir sólo el portal no
+basta. Un DNS estático con varias IP no certifica detección de fallos. La elección
+entre DNS redundante supervisado, entrada externa redundante o URLs manuales y
+sus límites se detalla en [Coordinación y acceso estable](COORDINACION.md).
 
 ## Desplegar posteriormente, sólo con autorización del operador
 
@@ -170,6 +255,11 @@ Primero inicie **únicamente los primarios**, según el ejemplo escogido:
 | 2 | `usuarios_db compras_db` | `eventos_db` | — | — |
 | 3 | `usuarios_db` | `eventos_db` | `compras_db` | — |
 | 4 | Sin DB | `usuarios_db` | `eventos_db` | `compras_db` |
+
+En `3-espejo.yml`, las columnas A/B/C corresponden a `pc1`/`pc2`/`pc3` y conservan
+el reparto de primarios de la fila 3. Para `5-mixto.yml` y cualquier inventario
+personalizado consulte `launch-order.json` en cada carpeta: un nodo de API no
+tiene por qué contener ninguna DB, y un nodo DB no tiene por qué contener API.
 
 Use los nombres de su celda; para el equipo A del ejemplo de dos nodos:
 
@@ -201,8 +291,12 @@ como acción separada del operador; la clave inicial se prepara en el secreto
 
 ## Agregar, retirar nodos y regenerar
 
-Edite **el inventario de la misma instalación**, sin cambiar `deployment` ni
-los IDs de nodos existentes, y prepare una entrega nueva conservando identidad:
+Edite **el YAML fuente de la misma instalación**, sin cambiar `deployment` ni
+los IDs de nodos existentes, y prepare una entrega nueva conservando identidad.
+Puede recuperar el fuente desde una copia de `inventory-source.yml` de la entrega
+anterior. `inventory.yml` está normalizado y contiene los roles ya expandidos:
+quitar un nodo de `mirror_nodes` allí podría conservar esos roles como asignación
+manual. Mantenga separados fuente editable y entrega generada.
 
 ```bash
 python3 despliegue-nodos/nodos.py preparar inventario.yml \
@@ -219,6 +313,19 @@ credenciales de una entrega nueva y datos existentes sin esa identidad.
 Las generaciones retiradas se recuerdan para impedir su reutilización accidental.
 Una entrega regenerada tampoco inicializa un primario cuyo volumen está vacío.
 
+Puede indicar `release: demo-espejo-v2` para identificar la entrega. La etiqueta
+y huella SHA-256 del inventario se incluyen en los metadatos y diagnóstico de
+instancia; son declaraciones publicadas, no una certificación de la versión
+binaria ejecutada. Al retirar nodos, elimínelos también de `mirror_nodes` y
+`placements`, ajuste los conteos `replicas` y retire cualquier copia PostgreSQL
+mediante el procedimiento correspondiente.
+
+Para incorporar equipos nuevos mediante identidad firmada, siga
+[anuncios e incorporación controlada](../docs/CONTROL_CLUSTER.md#anuncios-e-incorporación-de-computadoras).
+Un anuncio aceptado por administración no modifica el inventario ni activa un
+servicio. La aprobación persistente requiere verificar la huella pública fuera
+de banda y fijarla en `nodes[].identity_fingerprint` antes de regenerar.
+
 Actualice primero accesos/slots del primario al agregar standbys, después las
 réplicas y finalmente los routers/gateways/API. Redistribuya las carpetas de
 todos los nodos afectados, establezca `NEXUSTIX_SOURCE_ROOT` y recree los
@@ -234,12 +341,14 @@ Esa opción no hace ni certifica fencing o promoción. Si queda una topología
 degradada que no cumple HA, declare temporalmente `distribuido` y documente el
 riesgo; no eluda la comprobación inventando nodos disponibles.
 
-## Laboratorio de Resiliencia
+## Centro de Control y Laboratorio de Resiliencia
 
 Las API montan `config/operations-inventory.json` y activan
 `NEXUSTIX_OPERATIONS_INVENTORY_FILE`; sin esa variable se conserva la topología
-anterior. El panel administrativo muestra nodos, roles, presupuesto declarado,
-respuestas HTTP, primarios/standbys configurados y canales WAL observables.
+anterior y el Centro de Control informa que no hay inventario multinodo activo.
+El apartado **Centro de Control del Clúster** del panel administrativo muestra
+nodos, roles, presupuesto declarado, respuestas HTTP, últimas observaciones,
+primarios/standbys configurados, canales WAL observables y topología dinámica.
 Las proyecciones por nodo y dominio físico indican réplicas restantes,
 dependencias, escritura bloqueada por quórum y recuperación manual pendiente.
 Son cálculos sobre el inventario, **no simulaciones ni pruebas ejecutadas**.
@@ -248,8 +357,21 @@ No hay agente de host: un timeout no demuestra que una PC esté apagada, las
 copias dedicadas a DB no se sondean directamente y el diagnóstico API no
 certifica la ubicación física del primario conectado. El estado desconocido
 se conserva como tal. Las sondas tienen presupuesto de inicio y concurrencia
-acotada; una captura grande puede ser parcial. Las evidencias guardadas siguen
-dependiendo de Compras y su DB; no son un observador independiente con HA.
+acotada; una captura grande puede ser parcial.
+
+El endpoint administrativo de consulta está disponible en Usuarios, Eventos y
+Compras, sin escritura de observaciones en DB. La interfaz puede usar otro
+observador cuando uno no responde. Cada proceso conserva su historial reciente
+acotado en memoria, no compartida ni duradera. Las evidencias que el operador
+guarda explícitamente en el Laboratorio siguen dependiendo de Compras y su DB.
+La observación y sus límites se explican en
+[Centro de Control](../docs/CONTROL_CLUSTER.md).
+
+El coordinador de elección no está instalado. El panel mantiene el failover
+PostgreSQL automático bloqueado y no presenta el quórum WAL como votos de
+consenso. [Coordinación](COORDINACION.md) documenta la evaluación Patroni/etcd,
+fencing y requisitos físicos pendientes; la recuperación operada existente
+continúa en [RECUPERACION.md](RECUPERACION.md).
 
 ## Compatibilidad, migración y pendientes físicos
 

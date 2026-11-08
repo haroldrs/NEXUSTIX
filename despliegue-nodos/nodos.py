@@ -7,7 +7,6 @@ la identidad y las credenciales, y compara cambios en las copias PostgreSQL.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,7 +20,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from generar_secretos import generate_rsa_pair, write_secret
-from inventory import DOMAINS, InventoryError, load_inventory, topology_document
+from inventory import DOMAINS, InventoryError, inventory_fingerprint, load_inventory, stable_access, topology_document
 from render import render_node
 
 MASTER_FILES = {
@@ -104,11 +103,21 @@ def compare_inventories(previous, current, acknowledged):
         changes.append(f"Añadir nodo {node_id}")
     for node_id in sorted(set(old_nodes) - set(new_nodes)):
         changes.append(f"Retirar nodo {node_id} de rutas; su contenedor y volúmenes NO se eliminan")
+    for node_id in sorted(set(old_nodes) & set(new_nodes)):
+        old_roles, new_roles = set(old_nodes[node_id]["roles"]), set(new_nodes[node_id]["roles"])
+        if old_roles != new_roles:
+            changes.append(f"{node_id}: aplicaciones añadidas {', '.join(sorted(new_roles - old_roles)) or 'ninguna'}; retiradas {', '.join(sorted(old_roles - new_roles)) or 'ninguna'}. Compose no reubica ni detiene las retiradas automáticamente")
+        if old_nodes[node_id].get("identity_fingerprint") != new_nodes[node_id].get("identity_fingerprint"):
+            changes.append(f"{node_id}: cambió la identidad declarada; verificar la clave pública por un canal independiente antes de distribuir")
+    if previous["access"] != current["access"]:
+        changes.append("Cambió el acceso estable declarado; actualizar y comprobar DNS/proxy externo de forma coordinada")
+    if previous["release"] != current["release"]:
+        changes.append(f"Etiqueta de versión declarada: {current['release']}; comprobar y distribuir el código correspondiente en todas las PC")
     return changes
 
 
 def prepare(inventory_path, destination, source_root, previous_path=None, acknowledged=()):
-    inventory = load_inventory(inventory_path)
+    inventory, inventory_source = load_inventory(inventory_path, with_source=True)
     source_root = Path(source_root).expanduser().resolve()
     for filename in ("usuarios/Dockerfile", "eventos/Dockerfile", "compras/Dockerfile", "frontend/Dockerfile", "despliegue-nodos/postgres/Dockerfile"):
         if not (source_root / filename).is_file():
@@ -162,9 +171,12 @@ def prepare(inventory_path, destination, source_root, previous_path=None, acknow
             generate_rsa_pair(master / "jwt-private.pem", master / "jwt-public.pem")
             for name in sorted(MASTER_FILES - {"jwt-private.pem", "jwt-public.pem"}):
                 write_secret(master / name, secrets.token_urlsafe(40) + "\n")
+        # Conservar roles manuales originales evita que quitar mirror_nodes de
+        # una entrega futura deje como manuales los roles ya expandidos.
+        write_secret(destination / "inventory-source.yml", inventory_source)
         write_secret(destination / "inventory.yml", yaml.safe_dump(inventory, sort_keys=False))
         metadata = {"version": 1, "deployment": inventory["deployment"], "installation_id": identity,
-                    "inventory_sha256": hashlib.sha256(json.dumps(inventory, sort_keys=True).encode()).hexdigest(),
+                    "inventory_sha256": inventory_fingerprint(inventory), "release": inventory["release"],
                     "db_transitions_acknowledged": sorted(set(acknowledged)), "changes": changes,
                     "generation_history": generation_history,
                     "note": "Preparación de archivos; no acredita fencing, replicación ni despliegue"}
@@ -209,6 +221,7 @@ def prepare(inventory_path, destination, source_root, previous_path=None, acknow
                 write_secret(target, value + "\n")
             write_secret(folder / "compose.yml", yaml.safe_dump(compose, sort_keys=False))
         write_secret(destination / "access-points.json", json.dumps(topology_document(inventory)["access_points"], indent=2) + "\n", mode=0o644)
+        write_secret(destination / "stable-access.json", json.dumps(stable_access(inventory), indent=2) + "\n", mode=0o644)
         (destination / "INCOMPLETE").unlink()  # Solo este marcador creado en esta ejecución.
     finally:
         os.umask(previous_umask)
@@ -219,6 +232,9 @@ def prepare(inventory_path, destination, source_root, previous_path=None, acknow
         print("Cambio pendiente de aplicar: " + change)
     for access in topology_document(inventory)["access_points"]:
         print(f"Acceso {'preferido' if access['preferred'] else 'alternativo'}: {access['url']}")
+    stable = stable_access(inventory)
+    if stable.get("url"):
+        print(f"Acceso estable PREPARADO: {stable['url']}; requiere infraestructura externa redundante aún no comprobada")
 
 
 def main():

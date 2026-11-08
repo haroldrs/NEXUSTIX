@@ -1,29 +1,33 @@
 # HA PREPARADA: recuperación manual, sin elección ni promoción automática.
+# Escenario inicial: Fedora + dos Windows/Ubuntu WSL2. IP LAN de cada host.
 version: 1
 deployment: nodos-tres
 profile: alta_disponibilidad
 gateway: {preferred: equipo-a}
+applications:
+  mirror_nodes: [equipo-a, equipo-b, equipo-c]
+  replicas: {frontend: 3, gateway: 3, usuarios: 3, eventos: 3, compras: 3}
 nodes:
   - id: equipo-a
     address: 192.168.50.11
     platform: fedora
     failure_domain: maquina-a
     resources: {cpus: 4, memory_mb: 4096}
-    roles: [gateway, frontend, usuarios, eventos, compras]
+    roles: []  # Las cinco aplicaciones se asignan mediante mirror_nodes.
     docker_subnet: 172.28.101.0/24
   - id: equipo-b
     address: 192.168.50.12
     platform: wsl2
     failure_domain: maquina-b
     resources: {cpus: 4, memory_mb: 4096}
-    roles: [gateway, frontend, usuarios, eventos, compras]
+    roles: []
     docker_subnet: 172.28.102.0/24
   - id: equipo-c
     address: 192.168.50.13
-    platform: fedora
+    platform: wsl2
     failure_domain: maquina-c
-    resources: {cpus: 2, memory_mb: 2048}
-    roles: []  # Equipo dedicado a PostgreSQL, no a las API.
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: []
     docker_subnet: 172.28.103.0/24
 databases:
   usuarios: {primary: equipo-a, standbys: [equipo-b, equipo-c], replication: sync, sync_quorum: 1}

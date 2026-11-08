@@ -70,9 +70,13 @@ def load_inventory():
             reserved = node.get("reserved_resources", {})
             reserved = {key: value for key, value in reserved.items() if key in {"cpus", "memory_mb"}
                 and type(value) in {int, float} and 0 <= value <= 16777216} if isinstance(reserved, dict) else {}
+            fingerprint = node.get("identity_fingerprint")
+            if fingerprint is not None and (not isinstance(fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", fingerprint)):
+                raise ValueError("Huella de identidad inválida")
             nodes.append({"id": node_id, "address": _address(node["address"]),
                 "platform": _label(node["platform"], 40), "failure_domain": _label(node["failure_domain"]),
-                "resources": {"cpus": cpus, "memory_mb": memory}, "reserved_resources": reserved, "roles": roles})
+                "resources": {"cpus": cpus, "memory_mb": memory}, "reserved_resources": reserved, "roles": roles,
+                "identity_fingerprint": fingerprint})
         databases = {}
         for domain in DOMAINS:
             db = data["databases"][domain]
@@ -100,12 +104,23 @@ def load_inventory():
             "nodes": nodes, "databases": databases, "ports": ports, "gateway": {"preferred": preferred},
             "automatic_failover": False, "physical_ha_verified": False,
             "ha_status": "prepared_manual_recovery" if data["profile"] == "alta_disponibilidad" else "not_claimed"}
+        digest = data.get("inventory_sha256")
+        document["inventory_sha256"] = digest if isinstance(digest, str) and re.fullmatch(r"[a-f0-9]{64}", digest) else None
+        document["release"] = _label(data.get("release", "sin-etiqueta"), 96)
+        access = data.get("access", {"mode": "manual"})
+        if not isinstance(access, dict) or access.get("mode") not in {"manual", "external_dns", "external_proxy"}:
+            raise ValueError("Acceso de inventario inválido")
+        hostname = access.get("hostname")
+        if hostname is not None and (not isinstance(hostname, str) or not re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?", hostname)):
+            raise ValueError("Hostname de acceso inválido")
+        document["access"] = {"mode": access["mode"], "hostname": hostname,
+            "verified": False, "automatic_switch_verified": False}
         # Se reconstruyen las URL desde los destinos validados, nunca se reenvían
         # campos arbitrarios de access_points ni secretos del documento original.
         document["access_points"] = [{"node": n["id"], "url": base_url(n, ports["public"]),
             "preferred": n["id"] == preferred} for n in nodes if "gateway" in n["roles"]]
         return document, []
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
         return None, ["Inventario de nodos ausente o inválido. No se consultan destinos alternativos por convención; revisar el archivo configurado en el servidor."]
 
 
@@ -149,22 +164,43 @@ def database_components(document, components, diagnostics, moment):
     by_id = {c["id"]: c for c in components}
     for domain, config in document["databases"].items():
         sources = [d for d in diagnostics if by_id.get(d["componente"], {}).get("servicio") == domain]
-        available = [d for d in sources if d.get("disponible")]
-        roles = sorted({d["rol"] for d in available if d.get("rol")})
+        available = [d for d in sources if d.get("disponible") is True]
+        roles = sorted({d["rol"] for d in available if isinstance(d.get("rol"), str) and d["rol"] in {"primario", "standby"}})
         failed = any(c.get("base_datos") == "no_disponible" for c in components if c.get("servicio") == domain and c["tipo"] == "api")
-        mismatch = bool(roles and roles != ["primario"])
-        state = "degradado" if failed or mismatch else "saludable" if available else "desconocido"
+        identities = {}
+        for source in available:
+            identity = source.get("identidad") if isinstance(source.get("identidad"), dict) else {}
+            system = source.get("sistema") if isinstance(source.get("sistema"), dict) else {}
+            checkpoint = source.get("ultimo_checkpoint") if isinstance(source.get("ultimo_checkpoint"), dict) else {}
+            name = identity.get("identidad_nodo")
+            if source.get("rol") != "primario" or not isinstance(name, str) or not name:
+                continue
+            matched = next((n["id"] for n in document["nodes"] if "nx_" + component_id(domain, n["id"]) == name), None)
+            system_id = system.get("identificador_sistema")
+            system_id = system_id if isinstance(system_id, str) and re.fullmatch(r"[0-9]{1,24}", system_id) else None
+            identity_key = (name, system_id)
+            identities[identity_key] = {"nodo": matched, "identidad_nodo": name,
+                "identificador_sistema": system_id, "direccion": identity.get("direccion"),
+                "puerto": identity.get("puerto"), "timeline": checkpoint.get("timeline_id"),
+                "fuente": source["componente"], "comprobado_en": source.get("comprobado_en"),
+                "alcance": "Identidad informada por PostgreSQL; no certifica la máquina física ni fencing."}
+        primaries = list(identities.values())
+        observed = primaries[0] if len(primaries) == 1 else None
+        mismatch = bool(roles and roles != ["primario"]) or len(primaries) > 1 or bool(observed and observed["nodo"] != config["primary"])
+        state = "degradado" if failed or mismatch else "saludable" if available and roles == ["primario"] else "desconocido"
         result.append({"id": domain + "_db", "nombre": "PostgreSQL " + domain, "tipo": "postgresql",
             "nodo": config["primary"], "dependencias": [], "estado": state, "comprobado_en": moment,
             "latencia_ms": None, "instancia": None, "base_datos": "disponible" if available else "desconocido",
             "origen_configuracion": "inventario_nodos", "roles_observados": roles,
-            "detalle": "Rol observado a través de las API; la ubicación del primario procede del inventario, no identifica por sí sola el servidor conectado.",
+            "detalle": "Rol e identidad SQL observados mediante las API; nodo configurado e identidad observada se muestran por separado.",
             "discordancia_rol": mismatch})
-        channels = {}
-        for source in available:
-            for replica in source.get("replicas") or []:
-                if isinstance(replica, dict) and replica.get("application_name"):
-                    channels[replica["application_name"]] = replica
+        latest = max(available, key=lambda source: str(source.get("comprobado_en") or ""), default={})
+        # Una sola muestra: no sumar canales capturados en primarios/momentos diferentes.
+        rows = latest.get("replicas")
+        channels = {row["application_name"]: row for row in rows if isinstance(row, dict)
+                    and isinstance(row.get("application_name"), str)} if isinstance(rows, list) and len(primaries) <= 1 else {}
+        channel_evidence = (isinstance(rows, list) and latest.get("rol") == "primario" and len(primaries) <= 1
+                            and all(isinstance(row, dict) and row.get("application_name") and row.get("state") for row in rows))
         standby_rows = []
         for node_id in config["standbys"]:
             application = "nx_" + component_id(domain, node_id)
@@ -172,7 +208,10 @@ def database_components(document, components, diagnostics, moment):
             row = {"nodo": node_id, "application_name": application, "canal_observado": bool(channel),
                 "estado_canal": channel.get("state") if channel else None,
                 "sync_state": channel.get("sync_state") if channel else None,
-                "lag_bytes": channel.get("lag_bytes") if channel else None}
+                "lag_bytes": channel.get("lag_bytes") if channel else None,
+                "replay_lsn": channel.get("replay_lsn") if channel else None,
+                "replay_lag_seconds": channel.get("replay_lag_seconds") if channel else None,
+                "estado_observacion": "activo" if channel and channel.get("state") == "streaming" else "degradado" if channel else "no_disponible" if channel_evidence else "desconocido"}
             standby_rows.append(row)
             result.append({"id": component_id(domain + "_sb", node_id), "nombre": "Standby " + domain + " · " + node_id,
                 "tipo": "replica_postgresql", "nodo": node_id, "dependencias": [domain + "_db"],
@@ -180,20 +219,44 @@ def database_components(document, components, diagnostics, moment):
                 "base_datos": "desconocido", "origen_configuracion": "inventario_nodos",
                 "replicacion": row["estado_canal"], "lag_bytes": row["lag_bytes"],
                 "detalle": "Canal WAL observado desde la conexión API; salud directa del standby no consultada." if channel else "Standby configurado; sin canal WAL verificable en esta consulta."})
+        durability = latest.get("durabilidad") if isinstance(latest.get("durabilidad"), dict) else {}
+        sync_value = durability.get("synchronous_standby_names")
+        sync_peers = ["nx_" + component_id(domain, node_id) for node_id in config["standbys"]]
+        expected_sync = f"ANY {config['sync_quorum']} ({','.join(sync_peers)})" if config["replication"] == "sync" else ""
+        policy_matches = isinstance(sync_value, str) and re.sub(r"\s", "", sync_value) == re.sub(r"\s", "", expected_sync)
+        acknowledgers = sum(row.get("state") == "streaming" and row.get("sync_state") in ("sync", "quorum")
+                           for name, row in channels.items() if name in sync_peers) if channel_evidence else None
+        quorum_state = "desconocido" if sync_value is None or not channel_evidence else "discordante" if not policy_matches else "no_requerido" if config["replication"] == "async" else "disponible" if acknowledgers >= config["sync_quorum"] else "insuficiente"
+        sync_commit = durability.get("synchronous_commit")
+        waits_for_standby = sync_commit in ("on", "remote_write", "remote_apply")
+        write_state = "solo_lectura" if durability.get("transaction_read_only") == "on" or roles == ["standby"] else "espera_por_quorum_prevista" if quorum_state == "insuficiente" and waits_for_standby else "no_comprobada"
+        primary_component = next(row for row in result if row["id"] == domain + "_db")
+        if quorum_state in ("insuficiente", "discordante") or write_state == "solo_lectura":
+            primary_component["estado"] = "degradado"
+        elif not observed and primary_component["estado"] == "saludable":
+            primary_component["estado"] = "desconocido"
         assignments.append({"base": domain, "primario_configurado": config["primary"], "generaciones": config["generations"],
             "replicacion_configurada": config["replication"], "quorum_configurado": config["sync_quorum"],
             "roles_observados": roles, "discordancia_rol": mismatch, "standbys": standby_rows,
+            "primario_observado": observed, "primarios_observados": primaries,
+            "posible_conflicto_primarios": len(primaries) > 1,
+            "quorum_wal": {"configurado": config["sync_quorum"], "observado": acknowledgers,
+                "estado": quorum_state, "politica_observada": sync_value,
+                "synchronous_commit_observado": sync_commit, "es_consenso": False},
+            "escritura": {"estado": write_state,
+                "detalle": "Sólo lecturas de configuración y canales WAL; no se ejecuta un commit de prueba. Quórum insuficiente significa falta de confirmadores en la muestra."},
             "promocion_automatica": False, "ubicacion_servidor_conectado_verificada": False,
             "alcance": "Asignación declarada y canales observados; una réplica conectada no acredita recuperación ni fencing."})
     return result, assignments
 
 
-def _projection(document, removed, components, kind, target):
+def _projection(document, removed, components, assignments, kind, target):
     remaining = [n for n in document["nodes"] if n["id"] not in removed]
     replicas = {role: [n["id"] for n in remaining if role in n["roles"]] for role in sorted(ROLES)}
     healthy = {c["id"] for c in components if c.get("estado") == "saludable"}
     databases = []
     for domain, config in document["databases"].items():
+        observed = next((row for row in assignments if row["base"] == domain), {})
         copies = [n for n in config["standbys"] if n not in removed]
         if config["primary"] in removed:
             state = "recuperacion_manual_requerida" if copies else "sin_primario_ni_copia_configurada"
@@ -203,6 +266,10 @@ def _projection(document, removed, components, kind, target):
             state = "continuidad_condicionada"
         databases.append({"base": domain, "primario_restante": config["primary"] if config["primary"] not in removed else None,
             "standbys_restantes": copies, "estado_escrituras": state, "quorum_configurado": config["sync_quorum"],
+            "escritura_observada_actual": observed.get("escritura", {}).get("estado", "no_comprobada"),
+            "quorum_wal_actual": observed.get("quorum_wal", {}),
+            "recuperacion_manual_proyectada": config["primary"] in removed,
+            "quorum_consenso_observado": None,
             "riesgo_datos": "Posible pérdida de WAL no replicado en promoción manual." if config["replication"] == "async" else "Requiere suficientes confirmaciones WAL; un GET saludable no demuestra disponibilidad de escritura."})
     db_states = {db["base"]: db["estado_escrituras"] for db in databases}
     services = []
@@ -259,9 +326,10 @@ def infrastructure_view(document, components, assignments):
         "estado_preparacion": "recuperacion_manual_preparada", "nodos": nodes, "bases": assignments,
         "dominios_fallo_declarados": domains, "dependencias_criticas": dependencies,
         "accesos": document["access_points"],
+        "version_declarada": document.get("release"), "inventory_sha256": document.get("inventory_sha256"),
         "cambio_acceso": "Cambio manual a una URL de gateway superviviente. Puede requerir iniciar sesión de nuevo; no se transfieren cookies entre hosts.",
-        "proyecciones": [_projection(document, {n["id"]}, components, "nodo", n["id"]) for n in document["nodes"]]
-            + [_projection(document, {n["id"] for n in document["nodes"] if n["failure_domain"] == domain}, components, "dominio_fallo", domain) for domain in domains],
+        "proyecciones": [_projection(document, {n["id"]}, components, assignments, "nodo", n["id"]) for n in document["nodes"]]
+            + [_projection(document, {n["id"] for n in document["nodes"] if n["failure_domain"] == domain}, components, assignments, "dominio_fallo", domain) for domain in domains],
         "alcance": "El inventario declara máquinas, recursos y dominios de fallo; HTTP no acredita independencia física ni capacidad restante."}
 
 

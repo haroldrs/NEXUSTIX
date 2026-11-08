@@ -1,0 +1,39 @@
+# Tres máquinas independientes: Fedora, Windows/WSL2 y Windows/WSL2.
+# Declaración de topología, NO certificación de HA ni despliegue automático.
+version: 1
+deployment: espejo-tres
+release: demo-espejo-v1
+profile: alta_disponibilidad
+gateway: {preferred: pc1}
+applications:
+  mirror_nodes: [pc1, pc2, pc3]
+  # Conteos de aplicación, una instancia por rol y nodo; PostgreSQL va aparte.
+  replicas: {frontend: 3, gateway: 3, usuarios: 3, eventos: 3, compras: 3}
+access:
+  mode: manual
+nodes:
+  - id: pc1
+    address: 192.168.50.11
+    platform: fedora
+    failure_domain: maquina-1
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: []
+    docker_subnet: 172.28.101.0/24
+  - id: pc2
+    address: 192.168.50.12  # Dirección LAN de Windows.
+    platform: wsl2
+    failure_domain: maquina-2
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: []
+    docker_subnet: 172.28.102.0/24
+  - id: pc3
+    address: 192.168.50.13  # Dirección LAN de Windows.
+    platform: wsl2
+    failure_domain: maquina-3
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: []
+    docker_subnet: 172.28.103.0/24
+databases:
+  usuarios: {primary: pc1, standbys: [pc2, pc3], replication: sync, sync_quorum: 1}
+  eventos: {primary: pc2, standbys: [pc1, pc3], replication: sync, sync_quorum: 1}
+  compras: {primary: pc3, standbys: [pc1, pc2], replication: sync, sync_quorum: 1}

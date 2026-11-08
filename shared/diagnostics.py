@@ -1,5 +1,7 @@
 """Estado real del nodo PostgreSQL conectado; acceso administrativo."""
 from datetime import datetime, timezone
+import os
+import re
 
 from fastapi import Depends, HTTPException
 from sqlalchemy import text
@@ -8,6 +10,20 @@ from fastapi.responses import JSONResponse
 
 
 def install(app, get_db, require_admin):
+    from shared.cluster_observer import install as install_cluster, require_observer_admin
+    install_cluster(app)
+
+    @app.get("/diagnostico/instancia")
+    def instance(_admin=Depends(require_observer_admin)):
+        # Metadatos de proceso, sin conexión SQL ni lectura de secretos/host.
+        def label(name, maximum=96):
+            value = os.getenv(name, "")
+            return value if len(value) <= maximum and re.fullmatch(r"[A-Za-z0-9_.:+-]+", value) else None
+        return {"instancia": label("INSTANCE_ID"), "servicio": label("NEXUSTIX_SERVICE"),
+            "node_id": label("NEXUSTIX_NODE_ID"), "deployment_id": label("NEXUSTIX_DEPLOYMENT_ID"),
+            "release": label("NEXUSTIX_RELEASE"), "inventory_sha256": label("NEXUSTIX_INVENTORY_SHA256"),
+            "comprobado_en": datetime.now(timezone.utc).isoformat(),
+            "alcance": "Metadatos declarados al iniciar esta réplica; no certifican imagen ni identidad física."}
     @app.exception_handler(SQLAlchemyError)
     async def database_error(request, error):
         return JSONResponse(status_code=503, content={"detail": "Persistencia temporalmente no disponible; consulte o reintente con la misma clave."}, headers={"Retry-After": "2"})
@@ -62,12 +78,18 @@ def install(app, get_db, require_admin):
             durability = read("durabilidad", "SELECT current_setting('fsync') AS fsync, "
                 "current_setting('full_page_writes') AS full_page_writes, "
                 "current_setting('synchronous_commit') AS synchronous_commit, "
-                "current_setting('wal_level') AS wal_level")
+                "current_setting('wal_level') AS wal_level, "
+                "current_setting('synchronous_standby_names') AS synchronous_standby_names, "
+                "current_setting('transaction_read_only') AS transaction_read_only")
+            identity = read("identidad", "SELECT current_setting('cluster_name') AS identidad_nodo, "
+                "inet_server_addr()::text AS direccion, inet_server_port() AS puerto")
+            system = read("sistema", "SELECT system_identifier::text AS identificador_sistema FROM pg_control_system()")
             return {"disponible": True, "rol": "standby" if standby else "primario",
                 "comprobado_en": datetime.now(timezone.utc).isoformat(), "version": version,
                 "en_recuperacion": standby, "replicas": replication, "receptor_wal": receiver,
                 "archivado": archive, "wal": wal, "checkpoints": checkpoints,
                 "ultimo_checkpoint": control, "conexiones": connections, "durabilidad": durability,
+                "identidad": identity, "sistema": system,
                 "ultimo_failover": None, "consultas_no_disponibles": missing,
                 "estado": "parcial" if missing else "disponible",
                 "alcance": "nodo conectado; una lista vacía no acredita redundancia ni failover",

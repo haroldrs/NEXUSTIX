@@ -142,7 +142,7 @@ fi
 # No se escribe antes de initdb porque su directorio debe estar vacío.
 if [ -s "$PGDATA/PG_VERSION" ]; then nexustix-pg-access; fi
 
-set -- "$@" -c wal_level=replica -c "max_wal_senders=$max_slots" -c "max_replication_slots=$max_slots" \
+set -- "$@" -c "cluster_name=$NEXUSTIX_PG_NODE_ID" -c wal_level=replica -c "max_wal_senders=$max_slots" -c "max_replication_slots=$max_slots" \
     -c hot_standby=on -c wal_keep_size=512MB -c max_slot_wal_keep_size=2048MB \
     -c archive_mode=always -c 'archive_command=/usr/local/bin/archive-wal.sh %p %f' \
     -c synchronous_commit=on -c "synchronous_standby_names=$sync_names"

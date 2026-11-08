@@ -1,0 +1,57 @@
+# Tres nodos espejo, un nodo especializado y uno dedicado a PostgreSQL.
+# Direcciones, recursos y DNS son declaraciones; deben adaptarse a las PC reales.
+version: 1
+deployment: mixto-cinco
+release: demo-mixto-v1
+profile: alta_disponibilidad
+gateway: {preferred: pc1}
+applications:
+  mirror_nodes: [pc1, pc2, pc3]
+  # Sustituye la ubicación de Compras después de aplicar roles y espejo.
+  placements: {compras: [pc2, pc3, pc4]}
+  replicas: {frontend: 3, gateway: 3, usuarios: 3, eventos: 4, compras: 3}
+access:
+  # Sólo prepara URLs/CORS. No instala ni comprueba DNS o conmutación.
+  mode: external_dns
+  hostname: nexustix.lan
+  failure_domains: [infra-acceso-a, infra-acceso-b]
+nodes:
+  - id: pc1
+    address: 192.168.50.11
+    platform: fedora
+    failure_domain: maquina-1
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: []
+    docker_subnet: 172.28.101.0/24
+  - id: pc2
+    address: 192.168.50.12
+    platform: wsl2
+    failure_domain: maquina-2
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: []
+    docker_subnet: 172.28.102.0/24
+  - id: pc3
+    address: 192.168.50.13
+    platform: wsl2
+    failure_domain: maquina-3
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: []
+    docker_subnet: 172.28.103.0/24
+  - id: pc4
+    address: 192.168.50.14
+    platform: fedora
+    failure_domain: maquina-4
+    resources: {cpus: 2, memory_mb: 2048}
+    roles: [eventos, compras]
+    docker_subnet: 172.28.104.0/24
+  - id: pc5
+    address: 192.168.50.15
+    platform: fedora
+    failure_domain: maquina-5
+    resources: {cpus: 2, memory_mb: 2048}
+    roles: []  # Nodo PostgreSQL especializado, sin aplicaciones.
+    docker_subnet: 172.28.105.0/24
+databases:
+  usuarios: {primary: pc1, standbys: [pc2, pc3, pc5], replication: sync, sync_quorum: 1}
+  eventos: {primary: pc2, standbys: [pc1, pc3, pc5], replication: sync, sync_quorum: 1}
+  compras: {primary: pc3, standbys: [pc1, pc2, pc5], replication: sync, sync_quorum: 1}

@@ -22,6 +22,11 @@ El perfil de alta disponibilidad prepara componentes redundantes y recuperación
 manual: no garantiza continuidad automática, RTO determinado ni RPO cero.
 Si no puede probarse el aislamiento del primario anterior, no se promueve otro.
 
+La evaluación de Patroni, consenso y fencing para Fedora/Windows WSL está en
+[Coordinación y acceso estable](COORDINACION.md). Su integración automática
+permanece bloqueada por garantías físicas e infraestructura todavía no
+disponibles. El Centro de Control sólo observa; no ejecuta este procedimiento.
+
 Con replicación asíncrona pueden perderse commits confirmados que no llegaron
 a una réplica. Con replicación síncrona las escrituras esperan las confirmaciones
 configuradas; si faltan los standbys exigidos, quedan bloqueadas. La promoción

@@ -39,6 +39,29 @@
 .infrastructure-edge { flex: 1 1 230px; font-size: .8rem; padding: .8rem 1rem; background: #edf2eb; border-radius: 8px; overflow-wrap: anywhere; }
 .node-projection { margin: 1rem 0; padding: 1rem; border: 1px solid #ccd8cd; border-radius: 8px; }
 .node-projection summary { cursor: pointer; font-weight: 700; }
+.cluster-node-grid, .cluster-topology-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: .9rem; }
+.cluster-node { border: 1px solid #cad1c9; border-left-width: 4px; border-radius: 10px; padding: 1rem; background: #fff; min-width: 0; }
+.cluster-node.selected { outline: 2px solid #315b42; outline-offset: 2px; }
+.cluster-node h4, .cluster-topology h4 { margin: .2rem 0 .65rem; overflow-wrap: anywhere; }
+.cluster-node p, .cluster-node small, .cluster-topology p { overflow-wrap: anywhere; font-size: .79rem; line-height: 1.6; }
+.cluster-node small { display: block; color: #617267; }
+.cluster-node .button { margin-top: .8rem; }
+.cluster-stages { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0; }
+.cluster-stages span { font-size: .65rem; border: 1px solid #d0d9ce; border-radius: 5px; padding: .2rem .4rem; color: #5c6d62; }
+.cluster-stages .confirmed { color: #244f39; background: #ecf2e8; border-color: #a8c2ac; }
+.cluster-topology ul { list-style: none; padding: 0; margin: .6rem 0; }
+.cluster-topology li { padding: .35rem 0; font-size: .76rem; border-bottom: 1px solid #e6ece3; }
+.cluster-replication { padding: 1rem; margin-top: 1rem; background: #f1f5ed; border-radius: 9px; }
+.cluster-replication p { margin: .4rem 0; }
+.cluster-access-list { display: grid; gap: .8rem; }
+.cluster-access-list a { overflow-wrap: anywhere; font-size: .83rem; }
+.cluster-lab-link { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
+.cluster-lab-link p { flex: 1 1 280px; }
+#cluster-node-detail:focus { outline: 2px solid #315b42; outline-offset: 3px; }
+#cluster-history { max-height: 34rem; overflow-y: auto; }
+#cluster-summary .admin-stat strong { font-size: 1.4rem; overflow-wrap: anywhere; }
+#cluster-node-detail .service-grid { margin-top: 1rem; }
+#cluster-notice[hidden] { display: none; }
 #node-infrastructure a { overflow-wrap: anywhere; }
 .admin-timeline { display: grid; gap: 1rem; }
 .admin-timeline-entry { border-left: 3px solid #b4c8b4; padding: .3rem 0 .3rem 1rem; overflow-wrap: anywhere; }

@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import ipaddress
+import json
 import math
 import re
 from pathlib import Path
@@ -30,6 +31,8 @@ SERVICE_RESOURCES = {
 }
 PRIVATE = tuple(ipaddress.ip_network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
 SLUG = re.compile(r"^[a-z][a-z0-9-]*$")
+RELEASE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
+HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 class InventoryError(ValueError):
@@ -55,7 +58,7 @@ def _mapping(loader, node, deep=False):
 UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)
 
 
-def load_inventory(path):
+def load_inventory(path, *, with_source=False):
     source = Path(path)
     if source.stat().st_size > 256 * 1024:
         raise InventoryError("Inventario demasiado grande; máximo 256 KiB")
@@ -63,7 +66,8 @@ def load_inventory(path):
     try:
         if any(isinstance(token, (yaml.tokens.AliasToken, yaml.tokens.AnchorToken)) for token in yaml.scan(content)):
             raise InventoryError("Use YAML explícito, sin anclas ni alias")
-        return validate_inventory(yaml.load(content, Loader=UniqueLoader))
+        normalized = validate_inventory(yaml.load(content, Loader=UniqueLoader))
+        return (normalized, content) if with_source else normalized
     except yaml.YAMLError as exc:
         raise InventoryError("YAML inválido; no se admiten etiquetas ni fusiones") from exc
 
@@ -112,12 +116,105 @@ def _bridge(value, where):
     return network
 
 
+def _node_list(value, ids, where, minimum=0):
+    if (not isinstance(value, list) or not minimum <= len(value) <= 32
+            or any(not isinstance(item, str) or item not in ids for item in value)
+            or len(set(value)) != len(value)):
+        raise InventoryError(f"{where}: use entre {minimum} y 32 nodos del inventario, sin repetir")
+    return value
+
+
+def _applications(data, ids):
+    """Expande sólo aplicaciones; nunca cambia miembros ni roles PostgreSQL.
+
+    Orden deliberado: roles manuales, espejo aditivo y colocación exacta por rol.
+    Una réplica es una instancia de un rol en un nodo, no procesos adicionales.
+    """
+    applications = data.setdefault("applications", {})
+    _keys(applications, {"mirror_nodes", "placements", "replicas"}, set(), "applications")
+    mirrored = _node_list(applications.setdefault("mirror_nodes", []), ids, "applications.mirror_nodes")
+    placements = applications.setdefault("placements", {})
+    _keys(placements, ROLES, set(), "applications.placements")
+    for role, members in placements.items():
+        _node_list(members, ids, f"applications.placements.{role}", minimum=1)
+    replicas = applications.setdefault("replicas", {})
+    _keys(replicas, ROLES, set(), "applications.replicas")
+    for role, count in replicas.items():
+        _integer(count, f"applications.replicas.{role}", 1, len(ids))
+    for node in data["nodes"]:
+        assigned = set(node["roles"])
+        if node["id"] in mirrored:
+            assigned.update(ROLES)
+        for role, members in placements.items():
+            if node["id"] in members:
+                assigned.add(role)
+            else:
+                assigned.discard(role)
+        node["roles"] = [role for role in ROLES if role in assigned]
+    for role, count in replicas.items():
+        actual = sum(role in node["roles"] for node in data["nodes"])
+        if count != actual:
+            raise InventoryError(f"applications.replicas.{role} requiere {count} nodos asignados; hay {actual}. Ajuste roles, mirror_nodes o placements")
+
+
+def inventory_fingerprint(inventory):
+    """Huella de la configuración normalizada; no acredita el código ejecutado."""
+    return hashlib.sha256(json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _access(data):
+    """Sólo prepara un nombre estable; la infraestructura externa no se crea."""
+    access = data.setdefault("access", {"mode": "manual"})
+    _keys(access, {"mode", "hostname", "failure_domains"}, {"mode"}, "access")
+    if access["mode"] not in {"manual", "external_dns", "external_proxy"}:
+        raise InventoryError("access.mode debe ser manual, external_dns o external_proxy")
+    if access["mode"] == "manual":
+        if set(access) != {"mode"}:
+            raise InventoryError("access manual no admite hostname ni failure_domains")
+        return
+    _keys(access, {"mode", "hostname", "failure_domains"}, {"mode", "hostname", "failure_domains"}, "access")
+    hostname = access["hostname"]
+    if (not isinstance(hostname, str) or len(hostname) > 253 or "." not in hostname
+            or any(not HOST_LABEL.fullmatch(label) for label in hostname.split("."))
+            or hostname == "localhost" or hostname.endswith(".localhost")):
+        raise InventoryError("access.hostname: nombre DNS minúsculo sin esquema, puerto ni ruta")
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        raise InventoryError("access.hostname debe ser un nombre estable, no la IP de una computadora")
+    domains = access["failure_domains"]
+    if not isinstance(domains, list) or not 2 <= len(domains) <= 32:
+        raise InventoryError("access externo requiere entre 2 y 32 dominios físicos declarados para su infraestructura")
+    for domain in domains:
+        _slug(domain, "access.failure_domains[]", maximum=40)
+    if len(set(domains)) != len(domains):
+        raise InventoryError("access.failure_domains no admite duplicados")
+    gateway_domains = {node["failure_domain"] for node in data["nodes"] if "gateway" in node["roles"]}
+    if len(gateway_domains) < 2:
+        raise InventoryError("access externo requiere gateways en al menos dos dominios físicos")
+
+
+def stable_access(inventory):
+    access = inventory["access"]
+    result = {**access, "verified": False, "automatic_switch_verified": False,
+              "status": "manual" if access["mode"] == "manual" else "external_configuration_required"}
+    if access["mode"] != "manual":
+        result["url"] = f"http://{access['hostname']}:{inventory['ports']['public']}"
+        result["api_urls"] = {domain: f"http://{access['hostname']}:{inventory['ports'][domain]}" for domain in DOMAINS}
+    return result
+
+
 def validate_inventory(data):
-    _keys(data, {"version", "deployment", "profile", "gateway", "nodes", "databases", "ports"},
+    _keys(data, {"version", "deployment", "profile", "gateway", "nodes", "databases", "ports", "applications", "release", "access"},
           {"version", "deployment", "profile", "gateway", "nodes", "databases"}, "inventario")
     data = copy.deepcopy(data)
     _integer(data["version"], "version", 1, 1)
     _slug(data["deployment"], "deployment", 3, 24)
+    release = data.setdefault("release", "sin-etiqueta")
+    if not isinstance(release, str) or not RELEASE.fullmatch(release):
+        raise InventoryError("release: etiqueta declarada de 1–64 caracteres alfanuméricos, punto, guion, + o _")
     if data["profile"] not in {"local", "distribuido", "alta_disponibilidad"}:
         raise InventoryError("profile debe ser local, distribuido o alta_disponibilidad")
     _keys(data["gateway"], {"preferred"}, {"preferred"}, "gateway")
@@ -131,17 +228,24 @@ def validate_inventory(data):
     nodes = data["nodes"]
     if not isinstance(nodes, list) or not 1 <= len(nodes) <= 32:
         raise InventoryError("nodes admite entre 1 y 32 computadoras")
-    ids, addresses = set(), set()
+    ids, addresses, fingerprints = set(), set(), set()
     for node in nodes:
-        _keys(node, {"id", "address", "platform", "failure_domain", "resources", "roles", "docker_subnet", "postgres_client_cidrs"},
+        _keys(node, {"id", "address", "platform", "failure_domain", "resources", "roles", "docker_subnet", "postgres_client_cidrs", "identity_fingerprint"},
               {"id", "address", "platform", "failure_domain", "resources", "roles"}, "nodes[]")
         identity = _slug(node["id"], "node.id")
+        if "identity_fingerprint" in node and (not isinstance(node["identity_fingerprint"], str)
+                or not re.fullmatch(r"[0-9a-f]{64}", node["identity_fingerprint"])):
+            raise InventoryError(f"{identity}.identity_fingerprint requiere SHA-256 hexadecimal de la clave pública Ed25519 verificada por el operador")
+        if node.get("identity_fingerprint"):
+            if node["identity_fingerprint"] in fingerprints:
+                raise InventoryError("Cada nodo debe tener su propia clave de identidad; huella repetida")
+            fingerprints.add(node["identity_fingerprint"])
         if identity in ids:
             raise InventoryError(f"Nodo repetido: {identity}")
         ids.add(identity)
         _slug(node["failure_domain"], f"{identity}.failure_domain", maximum=40)
-        if node["platform"] not in {"fedora", "wsl2"}:
-            raise InventoryError(f"{identity}.platform debe ser fedora o wsl2")
+        if node["platform"] not in {"fedora", "wsl2", "linux"}:
+            raise InventoryError(f"{identity}.platform debe ser fedora, wsl2 o linux")
         try:
             address = ipaddress.ip_address(node["address"])
         except (ValueError, TypeError) as exc:
@@ -173,12 +277,14 @@ def validate_inventory(data):
         roles = node["roles"]
         if not isinstance(roles, list) or any(not isinstance(role, str) or role not in ROLES for role in roles) or len(set(roles)) != len(roles):
             raise InventoryError(f"{identity}.roles admite roles únicos: {', '.join(ROLES)}")
+    _applications(data, ids)
     gateways = [node["id"] for node in nodes if "gateway" in node["roles"]]
     if data["gateway"]["preferred"] not in gateways:
         raise InventoryError("gateway.preferred debe identificar un nodo con rol gateway")
     for role in ROLES:
         if not any(role in node["roles"] for node in nodes):
             raise InventoryError(f"Falta al menos un nodo con rol {role}")
+    _access(data)
     databases = data["databases"]
     _keys(databases, DOMAINS, DOMAINS, "databases")
     for domain, database in databases.items():
@@ -260,4 +366,13 @@ def topology_document(inventory):
     document["physical_ha_verified"] = False
     document["automatic_failover"] = False
     document["coordination"] = "manual_fencing_required"
+    document["inventory_sha256"] = inventory_fingerprint(inventory)
+    document["release_is_declarative"] = True
+    document["stable_access"] = stable_access(inventory)
+    document["application_replicas"] = {
+        role: {"configured": sum(role in node["roles"] for node in document["nodes"]),
+               "nodes": [node["id"] for node in document["nodes"] if role in node["roles"]],
+               "failure_domains": sorted({node["failure_domain"] for node in document["nodes"] if role in node["roles"]})}
+        for role in ROLES
+    }
     return document
