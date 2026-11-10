@@ -24,6 +24,7 @@ class Evento(Base):
     imagen_url = Column(String(2000), nullable=False, default="", server_default="")
     fecha = Column(DateTime(timezone=True), nullable=True)
     precio_centimos = Column(Integer, nullable=False, default=0, server_default="0")
+    distribucion = Column(JSON, nullable=True)
     organizador = Column(String(128), nullable=True)
     activo = Column(Boolean, nullable=False, default=True, server_default="true")
     # La baja lógica conserva el historial de reservas y evita reabrir ventas
@@ -54,6 +55,7 @@ class ReservaStock(Base):
     cantidad = Column(Integer, nullable=False)
     estado = Column(String(20), nullable=False, default="reservada", index=True)
     asientos = Column(JSON, nullable=True)
+    zona = Column(String(80), nullable=True)
     total_centimos = Column(Integer, nullable=False, default=0, server_default="0")
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

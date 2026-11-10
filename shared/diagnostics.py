@@ -19,8 +19,14 @@ def install(app, get_db, require_admin):
         def label(name, maximum=96):
             value = os.getenv(name, "")
             return value if len(value) <= maximum and re.fullmatch(r"[A-Za-z0-9_.:+-]+", value) else None
+        profile = label("NEXUSTIX_DEPLOYMENT_PROFILE")
+        count = label("NEXUSTIX_NODE_COUNT", maximum=2)
+        node_count = int(count) if count and re.fullmatch(r"[1-9][0-9]?", count) else None
         return {"instancia": label("INSTANCE_ID"), "servicio": label("NEXUSTIX_SERVICE"),
             "node_id": label("NEXUSTIX_NODE_ID"), "deployment_id": label("NEXUSTIX_DEPLOYMENT_ID"),
+            "deployment_profile": profile if profile in {"local", "distribuido", "alta_disponibilidad"} else None,
+            "installation_id": label("NEXUSTIX_INSTALLATION_ID"),
+            "node_count": node_count if node_count is not None and node_count <= 32 else None,
             "release": label("NEXUSTIX_RELEASE"), "inventory_sha256": label("NEXUSTIX_INVENTORY_SHA256"),
             "comprobado_en": datetime.now(timezone.utc).isoformat(),
             "alcance": "Metadatos declarados al iniciar esta réplica; no certifican imagen ni identidad física."}
@@ -79,6 +85,7 @@ def install(app, get_db, require_admin):
                 "current_setting('full_page_writes') AS full_page_writes, "
                 "current_setting('synchronous_commit') AS synchronous_commit, "
                 "current_setting('wal_level') AS wal_level, "
+                "current_setting('archive_mode') AS archive_mode, "
                 "current_setting('synchronous_standby_names') AS synchronous_standby_names, "
                 "current_setting('transaction_read_only') AS transaction_read_only")
             identity = read("identidad", "SELECT current_setting('cluster_name') AS identidad_nodo, "

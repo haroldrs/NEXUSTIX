@@ -1,0 +1,30 @@
+# PLANTILLA INACTIVA: no forma parte de ningún despliegue. Un miembro por dominio físico.
+# Sustituir ETCD_* en un entorno aislado. Las claves y la CA se montan fuera del repositorio.
+services:
+  etcd:
+    profiles: ["coordinacion-inactiva"]  # Sin este perfil explícito no arranca.
+    image: quay.io/coreos/etcd:v3.6.0
+    restart: "no"
+    volumes:
+      - etcd_data:/var/lib/etcd
+      - /ruta/fuera/del/repositorio/etcd-tls:/etc/etcd/tls:ro
+    command:
+      - etcd
+      - --name=ETCD_NOMBRE
+      - --data-dir=/var/lib/etcd
+      - --listen-peer-urls=https://0.0.0.0:2380
+      - --listen-client-urls=https://0.0.0.0:2379
+      - --advertise-client-urls=https://ETCD_DIRECCION_INTERNA:2379
+      - --initial-advertise-peer-urls=https://ETCD_DIRECCION_INTERNA:2380
+      - --initial-cluster=ETCD_LISTA_DE_MIEMBROS
+      - --initial-cluster-state=new
+      - --client-cert-auth=true
+      - --trusted-ca-file=/etc/etcd/tls/ca.crt
+      - --cert-file=/etc/etcd/tls/server.crt
+      - --key-file=/etc/etcd/tls/server.key
+      - --peer-client-cert-auth=true
+      - --peer-trusted-ca-file=/etc/etcd/tls/ca.crt
+      - --peer-cert-file=/etc/etcd/tls/peer.crt
+      - --peer-key-file=/etc/etcd/tls/peer.key
+volumes:
+  etcd_data: {}

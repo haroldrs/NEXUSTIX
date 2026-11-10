@@ -243,6 +243,7 @@ services:
       DATABASE_URL_FILE: /run/secrets/compras_database_url
       DB_APPLICATION_NAME: compras1
       EVENTOS_URL: http://eventos:8002
+      PUBLIC_PORTAL_URL: ${NEXUSTIX_PUBLIC_PORTAL_URL:-}
       JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
       EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
       FRONTEND_ORIGINS: http://localhost:28080,http://127.0.0.1:28080
@@ -282,6 +283,7 @@ services:
       DATABASE_URL_FILE: /run/secrets/compras_database_url
       DB_APPLICATION_NAME: compras2
       EVENTOS_URL: http://eventos:8002
+      PUBLIC_PORTAL_URL: ${NEXUSTIX_PUBLIC_PORTAL_URL:-}
       JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
       EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
       FRONTEND_ORIGINS: http://localhost:28080,http://127.0.0.1:28080

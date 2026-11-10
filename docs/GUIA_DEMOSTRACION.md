@@ -182,3 +182,97 @@ el entorno demo. Limitaciones: `docs/LIMITACIONES.md`.
 4. PostgreSQL, gateway o PC completa son puntos únicos de fallo salvo que se inicie explícitamente el overlay de replicación/documentación de VM. Use los procedimientos de `despliegue-vm/` para esos casos; la aplicación sólo visualiza su evidencia.
 
 La página pública no puede detener servicios. Las cancelaciones de eventos se ejecutan desde Compras para exigir autorización administrativa y preservar el progreso de compensación.
+
+---
+
+# Guía académica integral
+
+Secuencia para mostrar NEXUSTIX desde el panel, con la terminal solo cuando un procedimiento
+manual lo requiera. **Antes de la exposición, reconstruye las imágenes y ensaya cada paso:** las
+funciones de QR, escáner y paneles nuevos aún no se han ejecutado. Registra lo que ocurra; no
+adelantes un resultado que no hayas observado.
+
+## A. Demostración comercial
+
+1. Abre el portal y consulta los eventos.
+2. Abre un evento con zonas o asientos numerados y muestra la selección visual.
+3. Elige una entrada y reserva.
+4. En **Mis entradas**, completa el pago simulado y consulta el pedido.
+5. Muestra el ticket con su QR.
+6. Con una cuenta organizadora del evento, abre **Control de acceso** y valida.
+7. Repite el mismo código: debe rechazarse como entrada ya utilizada.
+
+La cámara requiere HTTPS o `localhost`. En LAN por HTTP usa el ingreso manual del código.
+
+## B. Demostración distribuida
+
+1. Abre **Administración → Centro de Control**.
+2. Recorre el mapa: computadoras y servicios.
+3. En **Observabilidad**, pulsa **Consultar instancias**.
+4. Señala las conexiones HTTP en el mapa.
+5. En **Seguir una compra o pedido**, consulta el pedido de la demostración.
+6. Abre **PostgreSQL y persistencia** y explica primarias, standbys y WAL.
+
+## C. Concurrencia: dos compradores, un asiento
+
+- **Condición de carrera:** dos solicitudes leen el asiento libre antes de que alguna escriba.
+- **Bloqueo:** Eventos toma `FOR UPDATE` sobre la fila del evento, lo que serializa las reservas.
+- **Transacción:** comprobación y asignación se confirman juntas.
+- **Resultado esperado:** una reserva aceptada y otra con conflicto de disponibilidad.
+- **Evidencia necesaria:** ambas operaciones en **Operaciones concurrentes** y **Inventario por
+  evento** consistente. La fecha de creación no prueba que hayan coincidido en el tiempo.
+
+## D. Tolerancia a fallos
+
+Se realizan manualmente, en un entorno aislado y con respaldo. Antes, en el Laboratorio, captura
+el estado inicial; después de la falla, captura de nuevo; al terminar, guarda el reporte.
+
+| Escenario | Requisitos | Riesgo | Estado inicial | Procedimiento autorizado | Resultado esperado | Registrar | Recuperación | Criterio de éxito | Limitación |
+|---|---|---|---|---|---|---|---|---|---|
+| Fallo de una API (B) | Dos réplicas | Medio | Ambas responden | Detener manualmente una réplica | Otra atiende las solicitudes nuevas | Instancia que respondió | Iniciar la réplica | Vuelve a responder sin duplicar compras | Las solicitudes en vuelo pueden fallar |
+| Fallo de base primaria (H) | Respaldo y entorno aislado | Alto | Rol observado primaria | Detener la base en el entorno de pruebas | Operaciones de ese servicio bloqueadas | Mensajes y bases afectadas | `despliegue-nodos/RECUPERACION.md` | Rol, WAL y operaciones verificados | Sin promoción automática |
+| Pérdida de Fedora (I) | Dos PC, inventario vigente | Alto | Proyección revisada | Apagar la máquina de forma controlada | Según el inventario: se pierden sus primarias y sus APIs | Componentes sin respuesta frente a la proyección | Encender y verificar; promoción manual si corresponde | Datos y operaciones verificados | Las standbys no se promocionan solas |
+| Pérdida de Windows (I) | Dos PC, comprobar que Docker Desktop se detuvo | Alto | Proyección revisada | Apagar la máquina de forma controlada | Según el inventario: se pierde la primaria de Eventos | Operaciones afectadas | Igual que el anterior | Inventario y pedidos verificados | Detener solo Ubuntu no aísla Docker Desktop |
+| Fallo del gateway (O) | Otra dirección conocida | Medio | Dirección alternativa anotada | Detener el gateway en uso | La otra dirección funciona | Dirección usada y respuesta | Iniciar el gateway | Acceso confirmado por la alternativa | Sin redirección automática |
+| Operación interrumpida (P) | Pedido autorizado | Medio | Pedido identificado | Interrumpir un paso manualmente | El pedido continúa o se compensa | Secuencia en **Recuperación de pedidos** | Trabajo de recuperación existente | Estado final sin duplicados | Recuperar la base no reconcilia todo |
+
+## E. Una PC o varias PC
+
+| Demostración | Una PC | Varias PC |
+|---|---|---|
+| Flujo comercial, QR y roles | Sí | Sí |
+| Concurrencia entre procesos | Sí | Sí |
+| Fallo de una instancia | Sí, en Compras con el Compose local | Sí |
+| Replicación entre computadoras | No | Sí |
+| Pérdida de una computadora | No: apagarla detiene todo | Sí |
+| Gateway alternativo | No | Sí |
+
+Una PC no tolera su propio apagado, aunque ejecute varios contenedores.
+
+## F. Preguntas del profesor
+
+- **¿Por qué microservicios?** Para separar dominios con bases propias, replicar procesos y
+  estudiar fallos parciales. A cambio, no hay transacción común.
+- **¿Por qué PostgreSQL?** Ofrece transacciones, bloqueos de fila, restricciones y replicación por WAL.
+- **¿Replicación o respaldo?** La réplica copia el presente, incluidos los errores; el respaldo es
+  una copia recuperable que debe verificarse.
+- **¿Qué es una Saga?** Una secuencia de transacciones locales con compensaciones si un paso falla.
+- **¿Por qué no una transacción global?** Compras y Eventos tienen bases distintas. Una 2PC acoplaría
+  su disponibilidad; NEXUSTIX acepta convergencia con estados durables.
+- **¿Cómo evitan vender dos veces un asiento?** La reserva se serializa con un bloqueo de la fila del
+  evento y comprueba que el asiento siga libre en la misma transacción.
+- **¿Qué ocurre si falla una API?** HAProxy la retira tras sus comprobaciones. Otra réplica atiende si
+  conserva sus dependencias.
+- **¿Qué sucede si se apaga Fedora?** En el despliegue conocido se pierden las primarias de Usuarios y
+  Compras y una standby de Eventos. Autenticación y compras quedan afectadas hasta la recuperación manual.
+- **¿Y si se apaga Windows?** Se pierde la primaria de Eventos, de la que dependen el catálogo y las reservas.
+- **¿Por qué una standby no se vuelve primaria sola?** Sin consenso ni fencing podría haber dos escritoras.
+- **¿Qué es split-brain?** Dos nodos aceptan escrituras divergentes como si cada uno fuera el legítimo.
+- **¿Por qué quórum?** Solo una mayoría puede decidir, y dos particiones no pueden tener mayoría a la vez.
+- **¿Qué es fencing?** Impedir de forma verificable que el escritor anterior siga escribiendo.
+- **¿Rollback o compensación?** El rollback revierte una transacción local no confirmada; la
+  compensación es una operación nueva que revierte un efecto ya confirmado.
+- **¿Qué garantiza la replicación asíncrona?** Que los standbys reciben los cambios con retraso. No
+  garantiza pérdida cero ni lecturas actualizadas.
+- **¿Qué falta para alta disponibilidad automática?** Coordinador real en tres dominios físicos, fencing
+  verificable, acceso redundante y ensayos registrados.

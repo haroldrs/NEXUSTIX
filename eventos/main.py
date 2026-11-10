@@ -1,3 +1,4 @@
+from typing import Annotated
 import os
 import time
 from datetime import datetime, timezone
@@ -257,7 +258,8 @@ def consultar_reserva_por_operacion(
         "cantidad": reserva.cantidad,
         "estado": reserva.estado,
         "stock_actual": evento.stock,
-        "asientos": reserva.asientos or [], "total_centimos": reserva.total_centimos,
+        "asientos": [] if reserva.zona else reserva.asientos or [], "total_centimos": reserva.total_centimos,
+        "zona": reserva.zona,
     }
 
 
@@ -386,12 +388,17 @@ def reservar_entradas(
     db: Session = Depends(get_db),
     _service: None = Depends(require_service_token),
     asientos: str = "",
+    zona: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
 ):
     """Reserva stock con bloqueo de fila y clave idempotente por operación."""
     t_inicio_lock = time.perf_counter()
     t_actual = tic_lamport(reloj_t)
 
     codigos = sorted(asientos.split(",")) if asientos else []
+    if zona is not None:
+        zona = zona.strip()
+        if not zona or codigos:
+            raise HTTPException(422, "Seleccione una zona y cantidad, sin códigos de asiento")
     if codigos and (len(codigos) != cantidad or len(set(codigos)) != cantidad):
         raise HTTPException(422, "Seleccione un asiento único por entrada")
     if db.get_bind().dialect.name == "postgresql":
@@ -403,9 +410,13 @@ def reservar_entradas(
         raise HTTPException(404, "Evento no encontrado")
     if evento.cancelado_en is not None:
         raise HTTPException(409, "Evento cancelado")
+    por_zona = (evento.distribucion or {}).get("tipo") == "zonas"
+    if por_zona != (zona is not None):
+        raise HTTPException(422, "Seleccione una zona para este evento" if por_zona else "Este evento no admite reserva por zona")
     existente = db.query(ReservaStock).filter(ReservaStock.operacion_id == operacion_id).with_for_update().first()
     if existente:
-        if existente.evento_id != evento_id or existente.cantidad != cantidad or sorted(existente.asientos or []) != codigos:
+        if (existente.evento_id != evento_id or existente.cantidad != cantidad or existente.zona != zona
+                or (not zona and sorted(existente.asientos or []) != codigos)):
             raise HTTPException(status_code=409, detail="operacion_id ya utilizado con datos diferentes")
         if existente.estado == "liberada":
             raise HTTPException(status_code=409, detail="Esta operación ya fue compensada y no puede reutilizarse")
@@ -416,7 +427,8 @@ def reservar_entradas(
             "stock_restante": evento_existente.stock if evento_existente else None,
             "operacion_id": operacion_id,
             "estado_reserva": existente.estado,
-            "total_centimos": existente.total_centimos, "asientos": existente.asientos or [],
+            "total_centimos": existente.total_centimos, "asientos": [] if zona else existente.asientos or [],
+            "zona": existente.zona,
             "idempotente": True,
             "reloj_logico_T": t_actual,
         }
@@ -427,7 +439,13 @@ def reservar_entradas(
     if not evento.activo or (evento.fecha and evento.fecha.replace(tzinfo=evento.fecha.tzinfo or timezone.utc) <= datetime.now(timezone.utc)):
         raise HTTPException(409, "Evento cerrado")
     seats = db.query(Asiento).filter_by(evento_id=evento_id).all()
-    selected = [seat for seat in seats if seat.codigo in codigos]
+    if zona:
+        selected = sorted((seat for seat in seats if seat.zona == zona and seat.operacion_id is None), key=lambda seat: seat.id)[:cantidad]
+        if len(selected) != cantidad:
+            raise HTTPException(409, "La zona no dispone de la cantidad solicitada")
+        codigos = [seat.codigo for seat in selected]
+    else:
+        selected = [seat for seat in seats if seat.codigo in codigos]
     if seats and (len(selected) != cantidad or any(seat.operacion_id for seat in selected)):
         raise HTTPException(409, "Asientos no disponibles; seleccione uno por entrada")
     if codigos and not seats:
@@ -439,16 +457,20 @@ def reservar_entradas(
     for seat in selected:
         seat.operacion_id = operacion_id
     evento.stock -= cantidad
-    db.add(ReservaStock(operacion_id=operacion_id, evento_id=evento_id, cantidad=cantidad, estado="reservada", asientos=codigos, total_centimos=total))
+    db.add(ReservaStock(operacion_id=operacion_id, evento_id=evento_id, cantidad=cantidad, estado="reservada", asientos=codigos, zona=zona, total_centimos=total))
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
         # Dos reintentos simultáneos con la misma clave no deben descontar dos veces.
         existente = db.query(ReservaStock).filter(ReservaStock.operacion_id == operacion_id).first()
-        if existente and existente.evento_id == evento_id and existente.cantidad == cantidad and existente.estado != "liberada":
+        if (existente and existente.evento_id == evento_id and existente.cantidad == cantidad and existente.zona == zona
+                and (zona or sorted(existente.asientos or []) == sorted(codigos)) and existente.estado != "liberada"):
             evento_actual = db.query(Evento).filter(Evento.id == evento_id).first()
-            return {"evento_id": evento_id, "cantidad": existente.cantidad, "stock_restante": evento_actual.stock, "operacion_id": operacion_id, "estado_reserva": existente.estado, "idempotente": True, "reloj_logico_T": t_actual}
+            return {"evento_id": evento_id, "cantidad": existente.cantidad, "stock_restante": evento_actual.stock,
+                    "operacion_id": operacion_id, "estado_reserva": existente.estado, "idempotente": True,
+                    "reloj_logico_T": t_actual, "total_centimos": existente.total_centimos, "zona": existente.zona,
+                    "asientos": [] if existente.zona else existente.asientos or []}
         raise HTTPException(status_code=409, detail="Conflicto al registrar la reserva; vuelva a consultar su estado")
     db.refresh(evento)
     tiempo_exclusion_ms = round((time.perf_counter() - t_inicio_lock) * 1000, 3)
@@ -458,7 +480,7 @@ def reservar_entradas(
         "stock_restante": evento.stock,
         "operacion_id": operacion_id,
         "estado_reserva": "reservada",
-        "total_centimos": total, "asientos": codigos,
+        "total_centimos": total, "asientos": [] if zona else codigos, "zona": zona,
         "idempotente": False,
         "reloj_logico_T": t_actual,
         "exclusion_mutua": {

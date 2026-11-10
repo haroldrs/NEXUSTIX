@@ -12,7 +12,7 @@ from typing import List
 from uuid import uuid4
 
 import requests
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -235,8 +235,10 @@ def get_principal(authorization: str | None = Header(default=None)) -> Principal
     )
 
 
-def require_admin(principal: Principal = Depends(get_principal)) -> Principal:
+def require_admin(principal: Principal = Depends(get_principal), request: Request = None) -> Principal:
     if principal.role != "administrador":
+        route = getattr(request.scope.get("route"), "path", None) if request else None
+        order_coordinator.audit.denied(principal, route or "ruta_no_identificada")
         raise HTTPException(status_code=403, detail="Se requiere rol administrador")
     return principal
 
@@ -774,7 +776,9 @@ def recuperar_servidor(db: Session = Depends(get_db), _admin: Principal = Depend
     global SIMULACION_APAGADO, SIMULACION_CORTE_RED
     SIMULACION_APAGADO = False
     SIMULACION_CORTE_RED = False
-    return ejecutar_recuperacion(db, permitir_compensacion=True, incluir_auditoria=True, origen="admin")
+    resultado = ejecutar_recuperacion(db, permitir_compensacion=True, incluir_auditoria=True, origen="admin")
+    order_coordinator.audit.record("recuperar_servidor", "compras", "ejecutado", _admin)
+    return resultado
 
 
 def ejecutar_recuperacion(db: Session, *, permitir_compensacion: bool, incluir_auditoria: bool,
@@ -1469,7 +1473,7 @@ def crear_compra(
         registrar_journal(
             "COMMIT",
             f"Compra #{compra.id} confirmada exitosamente ({datos.cantidad} entradas, Evento #{datos.evento_id})",
-            {"compra_id": compra.id, "usuario_id": principal.user_id, "auth_subject": principal.subject, "stock_restante": reserva_data.get("stock_restante")},
+            {"compra_id": compra.id, "reloj_enviado": t_msg_eventos, "reloj_eventos": reserva_data.get("reloj_logico_T"), "usuario_id": principal.user_id, "auth_subject": principal.subject, "stock_restante": reserva_data.get("stock_restante")},
             t_fin_c,
         )
 

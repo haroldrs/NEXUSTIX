@@ -26,6 +26,71 @@ function errorMessage(data, fallback) {
   return fallback;
 }
 
+// Modo degradado: un fallo de una petición ya realizada solo provoca verificar /health.
+// Nunca reintenta la operación comercial ni decide por una sola respuesta.
+const SERVICE_DOWN = new Set();
+const SERVICE_CHECKED = new Map();
+let SERVICE_RECHECK = null;
+const SERVICE_MESSAGES = {
+  usuarios: "El inicio de sesión y el registro no están disponibles temporalmente. Si ya tenías una sesión, puede seguir funcionando mientras esté vigente.",
+  eventos: "La información del evento puede estar desactualizada y no podemos confirmar la disponibilidad de este asiento. Las reservas están suspendidas por ahora.",
+  compras: "El servicio de compras no está disponible temporalmente y la validación de entradas está suspendida. Tu pedido podría haberse registrado: consulta su estado antes de repetirlo.",
+};
+
+function serviceTargets() {
+  return [["usuarios", CONFIG.USUARIOS_URL], ["eventos", CONFIG.EVENTOS_URL], ["compras", CONFIG.COMPRAS_LB_URL]].filter(([, base]) => base);
+}
+
+function noteServiceResponse(url, status) {
+  if (status !== 0 && status < 502) return;
+  const target = serviceTargets().find(([, base]) => url.startsWith(base));
+  if (target) verifyService(target[0]);
+}
+
+async function verifyService(service, force = false) {
+  if (!force && Date.now() - (SERVICE_CHECKED.get(service) || 0) < 20000) return;
+  SERVICE_CHECKED.set(service, Date.now());
+  const base = serviceTargets().find(([name]) => name === service)?.[1];
+  if (!base) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
+  let healthy = false;
+  try {
+    const response = await fetch(`${base.replace(/\/$/, "")}/health`, {signal: controller.signal});
+    healthy = response.ok && (await response.json())?.status === "ok";
+  } catch (_) { /* Sin respuesta verificable. */ } finally { clearTimeout(timer); }
+  const wasDown = SERVICE_DOWN.has(service);
+  if (healthy) SERVICE_DOWN.delete(service); else SERVICE_DOWN.add(service);
+  renderServiceStatus();
+  if (healthy && wasDown) serviceRecovered(service);
+}
+
+function serviceRecovered(service) {
+  // Actualiza la vista; los pedidos con resultado desconocido nunca se reenvían solos.
+  if (service === "eventos") loadEvents().then(() => { if (SELECTED_EVENT) loadSeats(); });
+  if (service === "compras") { if (!CHECKOUT_READY) detectCheckout(); if (CURRENT_VIEW === "mis-entradas") { refreshOrders(); loadMyPurchases(); } }
+}
+
+function serviceBlockMessage() {
+  if (SERVICE_DOWN.has("eventos")) return "No podemos confirmar la disponibilidad de este asiento. Las reservas están suspendidas por ahora.";
+  return SERVICE_DOWN.has("compras") ? "El servicio de compras no está disponible temporalmente." : "";
+}
+
+function renderServiceStatus() {
+  const box = document.getElementById("service-status");
+  clearTimeout(SERVICE_RECHECK);
+  box.hidden = SERVICE_DOWN.size === 0;
+  const lines = [...SERVICE_DOWN].map(service => SERVICE_MESSAGES[service]);
+  if (SERVICE_DOWN.size === serviceTargets().length) lines.push("Si esta dirección deja de responder por completo, la página no podrá avisarte: entra por otra dirección del portal indicada por la organización.");
+  document.getElementById("service-status-list").replaceChildren(...lines.map(text => Object.assign(document.createElement("li"), {textContent: text})));
+  if (typeof updatePurchaseSummary === "function") updatePurchaseSummary();
+  if (SERVICE_DOWN.size && !document.hidden) SERVICE_RECHECK = setTimeout(recheckDownServices, 60000);
+}
+
+function recheckDownServices() {
+  [...SERVICE_DOWN].forEach(service => verifyService(service, true));
+}
+
 async function fetchJSON(url, options = {}, timeoutMs = 5000, retried = false) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -35,6 +100,7 @@ async function fetchJSON(url, options = {}, timeoutMs = 5000, retried = false) {
     const requestToken = ACCESS_TOKEN && !headers.has("Authorization") ? ACCESS_TOKEN : null;
     if (requestToken) headers.set("Authorization", `Bearer ${requestToken}`);
     const response = await fetch(url, {...options, headers, signal: controller.signal});
+    noteServiceResponse(url, response.status);
     let data = null;
     try { data = await response.json(); } catch (_) { /* Respuesta sin JSON. */ }
     if (response.status === 401 && ACCESS_TOKEN && !retried && !url.includes("/auth/")) {
@@ -50,6 +116,7 @@ async function fetchJSON(url, options = {}, timeoutMs = 5000, retried = false) {
     }
     return {ok: response.ok, status: response.status, data};
   } catch (error) {
+    noteServiceResponse(url, 0);
     return {ok: false, status: 0, error: error.name === "AbortError" ? "La solicitud agotó el tiempo de espera." : "No se pudo conectar con el servicio."};
   } finally { clearTimeout(timeoutId); }
 }
@@ -86,8 +153,14 @@ function setAuthenticated(payload) {
   document.getElementById("auth-open").hidden = true;
   document.getElementById("auth-logout").hidden = false;
   setRegistrationAvailable(false);
+  syncAccessNavigation();
   if (changed && typeof checkoutIdentityChanged === "function") checkoutIdentityChanged(previous, CURRENT_USER);
   if (changed) loadMyPurchases();
+}
+
+function syncAccessNavigation() {
+  document.getElementById("nav-access").hidden = !["administrador", "organizador"].includes(CURRENT_USER?.role);
+  document.getElementById("nav-admin").hidden = CURRENT_USER?.role !== "administrador";
 }
 
 function clearPurchaseStatus() {
@@ -96,7 +169,7 @@ function clearPurchaseStatus() {
   if (typeof setCheckoutStep === "function") setCheckoutStep(1);
 }
 
-function clearAdminData() { if (typeof clearAdminWorkspace === "function") clearAdminWorkspace(); }
+function clearAdminData() { if (typeof stopAccessScanner === "function") stopAccessScanner(); if (typeof clearAdminWorkspace === "function") clearAdminWorkspace(); }
 
 function clearAuthenticated() {
   const previous = CURRENT_USER;
@@ -109,9 +182,9 @@ function clearAuthenticated() {
   document.getElementById("auth-logout").hidden = true;
   setRegistrationAvailable(true);
   document.getElementById("my-purchases").textContent = "Inicia sesión para consultar tu historial.";
-  clearPurchaseStatus(); clearAdminData();
+  clearPurchaseStatus(); clearAdminData(); syncAccessNavigation();
   if (typeof checkoutIdentityChanged === "function") checkoutIdentityChanged(previous, null);
-  if (CURRENT_VIEW === "admin") setView("comprar");
+  if (["admin", "control-acceso"].includes(CURRENT_VIEW)) setView("comprar");
 }
 
 function setRegistrationAvailable(available) {
@@ -182,13 +255,19 @@ function setView(name, updateHash = true) {
     PENDING_VIEW = `admin/${adminSection}`;
     openAuthDialog("login", false, "La administración requiere una cuenta administradora autorizada."); return;
   }
-  if (!["comprar", "evento", "mis-entradas", "admin"].includes(name)) name = "comprar";
+  if (name === "control-acceso" && !["administrador", "organizador"].includes(CURRENT_USER?.role)) {
+    PENDING_VIEW = name;
+    openAuthDialog("login", false, "El control de acceso requiere una cuenta organizadora o administradora."); return;
+  }
+  if (!["comprar", "evento", "mis-entradas", "admin", "entrada", "control-acceso"].includes(name)) name = "comprar";
+  if (name !== "control-acceso" && typeof stopAccessScanner === "function") stopAccessScanner();
   CURRENT_VIEW = name;
   document.querySelectorAll(".view").forEach(view => view.classList.toggle("active", view.id === `view-${name}`));
   document.querySelectorAll(".nav-link").forEach(button => button.classList.toggle("active", button.dataset.view === (name === "evento" ? "comprar" : name)));
-  if (updateHash && name !== "evento") history.pushState(null, "", `#${name === "admin" ? `admin/${adminSection}` : name}`);
+  if (updateHash && !["evento", "entrada"].includes(name)) history.pushState(null, "", `#${name === "admin" ? `admin/${adminSection}` : name}`);
   if (name === "admin") openAdminSection(adminSection);
   if (name === "mis-entradas") { refreshOrders(); loadMyPurchases(); }
+  if (name === "control-acceso") prepareAccessView();
   window.scrollTo({top: 0, behavior: "instant"});
 }
 
@@ -209,8 +288,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("auth-logout").addEventListener("click", logout);
   document.getElementById("auth-form").addEventListener("submit", submitAuth);
   document.querySelectorAll("[data-auth-mode]").forEach(button => button.addEventListener("click", () => { if (!button.hidden && !CURRENT_USER) selectAuthMode(button.dataset.authMode); }));
-  selectAuthMode("login"); initializeCatalog(); initializeCheckout(); initializeAdmin();
+  selectAuthMode("login"); initializeCatalog(); initializeCheckout(); initializeAdmin(); initializeAccess();
   await Promise.all([loadEvents(), restoreSession(), detectCheckout()]);
   routeLocation();
   window.addEventListener("hashchange", routeLocation);
+  document.getElementById("service-status-check").addEventListener("click", recheckDownServices);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && SERVICE_DOWN.size) recheckDownServices(); });
 });

@@ -10,6 +10,9 @@ Esta guía prepara la evolución de `despliegue-nodos`, no un segundo despliegue
 No se instala Patroni, etcd, un exportador ni un servicio DNS. Ningún botón del
 Centro de Control puede promover bases, aislar computadoras o ejecutar Docker.
 
+Una plantilla aislada e inactiva se encuentra en
+[coordinacion-inactiva/](coordinacion-inactiva/README.md).
+
 ## Decisión sobre Patroni y consenso
 
 Patroni con etcd es una opción técnicamente adecuada para coordinar los tres

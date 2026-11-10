@@ -53,11 +53,76 @@ def age(timestamp):
         return None
 
 
-def coordinator():
-    return {"configurado": False, "estado": "no_configurado", "quorum_observado": None,
-        "promocion_automatica": False, "failover_bloqueado": True,
-        "motivos": ["No hay coordinador de consenso instalado ni identidad de sus votantes verificada.",
-            "No se ha integrado ni comprobado fencing independiente para Fedora y Windows/Docker Desktop.",
+def coordination_observations():
+    """Lectura opcional de Patroni: destinos fijados en el servidor, nunca por el navegador."""
+    try:
+        endpoints = json.loads(os.getenv("NEXUSTIX_COORDINATION_ENDPOINTS") or "{}")
+    except ValueError:
+        return []
+    if not isinstance(endpoints, dict):
+        return []
+    import requests
+    from urllib.parse import urlsplit
+    rows = []
+    for base, url in list(endpoints.items())[:8]:
+        parsed = urlsplit(url) if isinstance(url, str) else None
+        if not parsed or parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            continue
+        row = {"base": str(base)[:40], "estado": "desconocido", "miembros": []}
+        try:
+            with requests.Session() as session:
+                session.trust_env = False
+                response = session.get(url.rstrip("/") + "/cluster", timeout=(1, 2), allow_redirects=False)
+            members = response.json().get("members") if response.status_code == 200 else None
+            if isinstance(members, list):
+                row["miembros"] = [{key: member.get(key) for key in ("name", "role", "state", "timeline") if isinstance(member.get(key), (str, int))}
+                    for member in members[:16] if isinstance(member, dict)]
+                row["estado"] = "observado"
+        except (requests.RequestException, ValueError, AttributeError):
+            pass
+        rows.append(row)
+    return rows
+
+
+def coordinator(document=None):
+    """Evalúa preparación. Ninguna rama autoriza promociones ni declara HA operativa."""
+    nodes = document["nodes"] if document else []
+    domains = {node["id"]: node.get("failure_domain") for node in nodes}
+    plan = document.get("coordination_plan") if document else None
+    voters = [voter for voter in plan["voters"] if voter in domains] if plan else []
+    majority = len(voters) // 2 + 1 if voters else None
+    worst = max(sum(domains[voter] == domain for voter in voters) for domain in {domains[voter] for voter in voters}) if voters else None
+    survives = len(voters) - worst >= majority if voters else None
+    observed = coordination_observations() if document else []
+    seen = any(row["estado"] == "observado" for row in observed)
+    databases = document["databases"].items() if document else []
+    standbys_ok = bool(databases) and all(any(domains.get(node) != domains.get(db["primary"]) for node in db["standbys"]) for _, db in databases)
+    gateways = {node.get("failure_domain") for node in nodes if "gateway" in node.get("roles", [])}
+    access = (document or {}).get("access", {})
+
+    def need(name, state, detail):
+        return {"requisito": name, "estado": state, "detalle": detail}
+
+    requirements = [
+        need("Tres dominios físicos independientes", "cumplido" if len(set(domains.values())) >= 3 else "pendiente", f"{len(set(domains.values()))} declarados en el inventario."),
+        need("Votantes de consenso declarados", "cumplido" if voters else "no_configurado", f"{len(voters)} votantes en el plan." if voters else "Sin plan de coordinación en el inventario."),
+        need("Mayoría tras perder un dominio", "no_configurado" if not voters else "cumplido" if survives else "pendiente", "Cálculo sobre la declaración; no acredita conectividad."),
+        need("Coordinador desplegado y observado", "cumplido" if seen else "no_configurado", "Respuesta real de Patroni, sin quórum de etcd verificado." if seen else "Coordinador no instalado."),
+        need("Fencing verificable del escritor anterior", "pendiente", "Sin mecanismo independiente comprobado. Bloquea cualquier promoción automática."),
+        need("Standby en otro dominio para cada base", "cumplido" if standbys_ok else "pendiente", "Según el inventario; no garantiza que conserve todos los commits."),
+        need("Gateways en dos o más dominios", "cumplido" if len(gateways) >= 2 else "pendiente", f"{len(gateways)} dominios con gateway declarados."),
+        need("Acceso estable verificado", "no_verificable" if access.get("mode") not in {None, "manual"} else "no_configurado", "La infraestructura externa no se comprueba desde aquí." if access.get("mode") not in {None, "manual"} else "Acceso manual por direcciones alternativas."),
+        need("Failover y reincorporación ensayados", "no_verificable", "Sin evidencia de un ensayo registrado."),
+    ]
+    if not document:
+        requirements = []  # Sin inventario no hay nada que evaluar.
+    return {"configurado": seen, "estado": "observado" if seen else "preparado_inactivo" if plan else "no_configurado", "quorum_observado": None,
+        "promocion_automatica": False, "failover_bloqueado": True, "ha_operativa": False,
+        "mensaje": None if plan or seen else "Coordinador no instalado. Failover PostgreSQL automático no disponible.",
+        "votantes_declarados": [{"nodo": voter, "dominio": domains[voter]} for voter in voters], "mayoria_requerida": majority,
+        "conserva_mayoria_tras_perder_dominio": survives, "observaciones": observed, "requisitos": requirements,
+        "motivos": ["No hay coordinador de consenso operativo ni identidad de sus votantes verificada." if not seen else "Observar a Patroni no autoriza promociones desde NEXUSTIX.",
+            "No se ha integrado ni comprobado fencing independiente para las computadoras declaradas.",
             "El quórum WAL no elige un líder. Conservar la recuperación manual coordinada."]}
 
 
@@ -70,6 +135,7 @@ class ClusterObserver:
         self.history = deque(maxlen=256)
         self.states = OrderedDict()
         self.last_nodes = OrderedDict()
+        self.component_memory = OrderedDict()
         self.cached = None
         self.cached_at = 0.0
         self.cached_key = None
@@ -227,6 +293,16 @@ class ClusterObserver:
             for component in components:
                 if component.get("tipo") in HTTP_KINDS and component.get("sonda_realizada"):
                     state = component.get("estado", "desconocido")
+                    # Memoria por observador: permite distinguir un fallo aislado de uno repetido.
+                    memory = self.component_memory.setdefault(component["id"], {"fallos": 0, "ultima_valida": None})
+                    self.component_memory.move_to_end(component["id"])
+                    memory["fallos"] = 0 if state == "saludable" else memory["fallos"] + 1
+                    if state == "saludable":
+                        memory["ultima_valida"] = component.get("comprobado_en")
+                    component["fallos_consecutivos"] = memory["fallos"]
+                    component["ultima_respuesta_valida"] = memory["ultima_valida"]
+                    while len(self.component_memory) > 256:
+                        self.component_memory.popitem(last=False)
                     self.transition("servicio:" + component["id"], state,
                         "servicio_recuperado" if state == "saludable" else "servicio_no_disponible" if state == "degradado" else "servicio_no_verificable",
                         component.get("detalle", "Observación HTTP"), node=component.get("nodo"))
@@ -259,9 +335,10 @@ class ClusterObserver:
             for node in node_rows:
                 node["eventos"] = [event for event in events if event["nodo"] == node["id"]][:12]
             access = document.get("access", {})
-            stable = f"http://{access['hostname']}:{document['ports']['public']}" if access.get("hostname") and access.get("mode") != "manual" else None
+            stable = f"{access.get('scheme', 'http')}://{access['hostname']}:{document['ports']['public']}" if access.get("hostname") and access.get("mode") != "manual" else None
             cluster = {"estado": state, "resumen": summary, "nodos": node_rows, "bases": infrastructure["bases"],
-                "coordinador": coordinator(), "acceso": {"modo": access.get("mode", "manual"), "hostname": access.get("hostname"),
+                "coordinador": coordinator(document), "acceso": {"modo": access.get("mode", "manual"), "hostname": access.get("hostname"),
+                    "esquema": access.get("scheme", "http"), "dominios_infraestructura": access.get("failure_domains", []),
                     "url_estable": stable, "verificado": False, "alternativas": document["access_points"]},
                 "descubrimiento": {"habilitado": True, "modo": "anuncios_firmados", "candidatos": candidates,
                     "pasos": ["Anuncio firmado", "Verificar huella por otro canal", "Autorizar pin en inventario",

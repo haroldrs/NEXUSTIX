@@ -114,7 +114,13 @@ def load_inventory():
         if hostname is not None and (not isinstance(hostname, str) or not re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?", hostname)):
             raise ValueError("Hostname de acceso inválido")
         document["access"] = {"mode": access["mode"], "hostname": hostname,
+            "scheme": "https" if access.get("scheme") == "https" else "http",
+            "failure_domains": [_label(item, 40) for item in access.get("failure_domains", [])][:32],
             "verified": False, "automatic_switch_verified": False}
+        plan = data.get("coordination_plan")
+        known = {n["id"] for n in nodes}
+        if isinstance(plan, dict) and plan.get("mode") == "prepared_inactive" and isinstance(plan.get("voters"), list):
+            document["coordination_plan"] = {"mode": "prepared_inactive", "voters": [v for v in plan["voters"] if v in known][:5]}
         # Se reconstruyen las URL desde los destinos validados, nunca se reenvían
         # campos arbitrarios de access_points ni secretos del documento original.
         document["access_points"] = [{"node": n["id"], "url": base_url(n, ports["public"]),
