@@ -24,7 +24,8 @@ from shared.auth_tokens import service_auth_headers
 from shared import node_operations
 
 STATES = Literal["saludable", "degradado", "caido", "desconocido"]
-SCENARIO = Literal["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+SCENARIO = Literal["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"]
+RECOVERY_STAGE = Literal["falla", "aislamiento", "replica", "promocion", "conexiones", "servicios", "integridad"]
 KNOWN = {
     "frontend": ("Frontend", "frontend", []),
     "gateway": ("Balanceador / gateway", "gateway", ["compras1", "compras2"]),
@@ -57,11 +58,31 @@ def clean(value, limit=1500):
     return "".join(c for c in value if c in "\n\t" or ord(c) >= 32)
 
 
+class OperatorMeasures(BaseModel):
+    # Datos aportados por quien ejecuta el experimento: nunca se presentan como medidos por el sistema.
+    model_config = {"extra": "forbid"}
+    inicio_falla: datetime | None = None
+    restauracion: datetime | None = None
+    operacion: str = Field(default="", max_length=100)
+    intentadas: int | None = Field(default=None, ge=0, le=10000000)
+    correctas: int | None = Field(default=None, ge=0, le=10000000)
+    fallidas: int | None = Field(default=None, ge=0, le=10000000)
+    rto_objetivo_segundos: float | None = Field(default=None, ge=0, le=31536000, allow_inf_nan=False)
+    rpo_objetivo: str = Field(default="", max_length=120)
+    ultima_transaccion_reconocida: str = Field(default="", max_length=120)
+    ultima_transaccion_recuperada: str = Field(default="", max_length=120)
+    perdida_observada: str = Field(default="", max_length=300)
+
+
 class CaptureRequest(BaseModel):
     model_config = {"extra": "forbid"}
     escenario: SCENARIO
     fase: Literal["inicial", "final", "observacion"] = "observacion"
     referencia_inicial: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    referencia_falla: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    nodo_objetivo: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.:-]{1,80}$")
+    pasos_recuperacion: list[RECOVERY_STAGE] = Field(default_factory=list, max_length=7)
+    mediciones: OperatorMeasures | None = None
     acciones: str = Field(default="", max_length=1500)
     observado: str = Field(default="", max_length=2000)
     conclusion: str = Field(default="", max_length=1500)
@@ -156,9 +177,65 @@ def scenarios():
          "Capturar estadísticas antes/después de actividad autorizada y recuperación manual.",
          "LSN y estadísticas describen actividad persistente; operaciones anteriores siguen disponibles.",
          "La mera presencia de WAL/checkpoints no prueba recuperación; hace falta contrastar datos anteriores/posteriores."),
+        ("K", "Timeout entre Compras y Eventos", "Distinguir un resultado remoto desconocido de un rechazo.",
+         ["timeouts", "fallos parciales", "comunicación síncrona"], ["compras1", "compras2", "eventos_entrada"],
+         "Entorno aislado y una operación autorizada identificable.",
+         "Operador retrasa o interrumpe manualmente la ruta hacia Eventos y conserva el identificador de la operación.",
+         "El resultado queda pendiente de verificación; no se compensa a ciegas ni se duplica.",
+         "Un timeout no indica si Eventos llegó a aplicar la reserva."),
+        ("L", "Interrupción de conectividad entre nodos", "Observar el comportamiento cuando dos computadoras dejan de comunicarse.",
+         ["particiones de red", "fallos parciales", "split-brain"], ["gateway", "usuarios_db", "eventos_db", "compras_db"],
+         "Dos o más máquinas reales, autorización manual y un observador en cada lado.",
+         "Operador corta manualmente la red entre los nodos en un entorno aislado y captura desde cada lado.",
+         "Cada lado solo conserva lo que tiene accesible; ninguna base se promociona sola.",
+         "La falta de conectividad no demuestra apagado. Las capturas de cada lado no forman un estado global."),
+        ("M", "Interrupción del streaming WAL", "Observar el canal WAL y un standby sin capacidad de escritura.",
+         ["replicación", "WAL", "consistencia"], ["usuarios_db", "eventos_db", "compras_db"],
+         "Standby configurado y canal WAL observable.",
+         "Operador interrumpe manualmente el canal hacia un standby y observa su diagnóstico.",
+         "La primaria sigue escribiendo si es asíncrona; el standby se retrasa y sigue sin aceptar escrituras.",
+         "La diferencia WAL no equivale a tiempo. En modo síncrono las escrituras pueden quedar en espera."),
+        ("N", "Reincorporación controlada de una base", "Documentar cómo vuelve un nodo antiguo como standby.",
+         ["recuperación", "split-brain", "timeline"], ["usuarios_db", "eventos_db", "compras_db"],
+         "Promoción manual previa documentada y antiguo primario aislado.",
+         "Operador sigue despliegue-nodos/RECUPERACION.md para reconstruirlo con una generación nueva.",
+         "El nodo vuelve como standby y no compite como escritor.",
+         "Encender un antiguo primario no lo reincorpora; su historia WAL puede ser divergente."),
+        ("O", "Pérdida del gateway del navegador", "Observar qué ocurre al perder la URL usada, aunque otros servicios sigan activos.",
+         ["disponibilidad", "transparencia", "punto único de fallo"], ["frontend", "gateway"],
+         "Otro gateway configurado, si existe, y su dirección conocida de antemano.",
+         "Operador interrumpe manualmente el gateway en uso y entra por la dirección alternativa.",
+         "El acceso alternativo funciona si está configurado y es alcanzable.",
+         "No hay redirección automática sin un acceso estable. Una página servida desde ese origen no recibe datos nuevos."),
+        ("P", "Reserva pendiente de confirmación", "Seguir un pedido detenido entre la reserva y su confirmación.",
+         ["Saga", "recuperación hacia adelante", "compensación"], ["compras1", "eventos_a", "compras_db", "eventos_db"],
+         "Pedido autorizado identificable y trabajo de recuperación habilitado.",
+         "Operador interrumpe manualmente un paso en un entorno aislado y sigue el pedido en Observabilidad.",
+         "El pedido continúa o se compensa desde su estado durable, sin duplicar efectos.",
+         "Recuperar la infraestructura no significa que los pedidos ya estén consistentes."),
     ]
+    meta = {
+        "A": ("comerciales", ["local", "distribuido", "multinodo"], "bajo", ["Eventos", "PostgreSQL Eventos"], "Inventario consistente tras las solicitudes.", ["Latencia", "Solicitudes correctas y fallidas"]),
+        "B": ("procesos", ["local", "distribuido", "multinodo"], "medio", ["API Compras"], "La réplica vuelve y supera sus comprobaciones.", ["Disponibilidad funcional", "Ventana de observación"]),
+        "C": ("procesos", ["distribuido", "multinodo"], "medio", ["API Eventos"], "La réplica vuelve y supera sus comprobaciones.", ["Disponibilidad funcional", "Ventana de observación"]),
+        "D": ("procesos", ["distribuido", "multinodo"], "medio", ["API Usuarios"], "La réplica vuelve y supera sus comprobaciones.", ["Disponibilidad funcional", "Ventana de observación"]),
+        "E": ("comerciales", ["local", "distribuido", "multinodo"], "medio", ["Compras", "Eventos"], "Compensaciones cerradas sin duplicados.", ["Estado de reembolsos", "Inventario"]),
+        "F": ("comerciales", ["local", "distribuido", "multinodo"], "medio", ["Compras", "Eventos"], "Operación resuelta con su mismo identificador.", ["Idempotencia", "Estado final"]),
+        "G": ("procesos", ["local", "distribuido", "multinodo"], "medio", ["API Compras", "Outbox"], "Trabajos pendientes reanudados y cerrados.", ["Pedidos pendientes", "Ventana de observación"]),
+        "H": ("bases_datos", ["local", "distribuido", "multinodo"], "alto", ["PostgreSQL", "APIs dependientes"], "Rol, WAL y operaciones persistidas verificados.", ["RTO", "RPO", "Replicación"]),
+        "I": ("fisicas", ["distribuido", "multinodo"], "alto", ["Todos los componentes del nodo"], "Servicios, escrituras y pedidos verificados tras la reincorporación.", ["Detección", "RTO", "RPO", "Disponibilidad funcional"]),
+        "J": ("bases_datos", ["local", "distribuido", "multinodo"], "medio", ["PostgreSQL"], "Datos anteriores disponibles tras la recuperación.", ["Replicación", "Checkpoints"]),
+        "K": ("comunicacion", ["local", "distribuido", "multinodo"], "medio", ["Compras", "Eventos"], "La operación se verifica por su identificador.", ["Latencia", "Respuestas por timeout"]),
+        "L": ("comunicacion", ["multinodo"], "alto", ["Rutas entre nodos", "Replicación WAL"], "Conectividad restaurada y roles verificados.", ["Detección", "Replicación", "Disponibilidad funcional"]),
+        "M": ("bases_datos", ["distribuido", "multinodo"], "medio", ["Replicación WAL"], "Canal en streaming y retraso medido.", ["Replicación"]),
+        "N": ("bases_datos", ["distribuido", "multinodo"], "alto", ["PostgreSQL"], "Standby con identidad, timeline y WAL confirmados.", ["Replicación", "RTO"]),
+        "O": ("fisicas", ["distribuido", "multinodo"], "medio", ["Acceso del navegador"], "Acceso restaurado o alternativa verificada.", ["Disponibilidad funcional"]),
+        "P": ("comerciales", ["local", "distribuido", "multinodo"], "medio", ["Compras", "Eventos"], "Pedido en estado final verificado.", ["Estado final", "Recuperación"]),
+    }
     result = [{"id": r[0], "nombre": r[1], "objetivo": r[2], "conceptos": r[3], "componentes": r[4],
-             "requisitos": r[5], "accion": r[6], "esperado": r[7], "limitaciones": [r[8]]} for r in rows]
+             "requisitos": r[5], "accion": r[6], "esperado": r[7], "limitaciones": [r[8]],
+             "categoria": meta[r[0]][0], "perfiles": meta[r[0]][1], "riesgo": meta[r[0]][2], "dependencias": meta[r[0]][3],
+             "recuperacion": meta[r[0]][4], "metricas": meta[r[0]][5]} for r in rows]
     if node_operations.enabled():
         document, warnings = node_operations.load_inventory()
         if document:
@@ -303,7 +380,7 @@ DIAGNOSTIC_KEYS = {"disponible", "rol", "comprobado_en", "version", "en_recupera
     "application_name", "state", "sync_state", "sent_lsn", "write_lsn", "flush_lsn", "replay_lsn", "lag_bytes", "replay_lag_seconds",
     "status", "written_lsn", "flushed_lsn", "latest_end_lsn", "last_msg_receipt_time", "recibido_lsn", "aplicado_lsn", "ultimo_replay", "replay_pausado",
     "actual_lsn", "persistido_lsn", "archived_count", "failed_count", "last_archived_time", "last_failed_time", "num_timed", "num_requested", "write_time", "sync_time",
-    "buffers_written", "stats_reset", "checkpoint_lsn", "redo_lsn", "timeline_id", "checkpoint_time", "total", "activas", "maximas", "fsync", "full_page_writes", "synchronous_commit", "wal_level",
+    "buffers_written", "stats_reset", "checkpoint_lsn", "redo_lsn", "timeline_id", "checkpoint_time", "total", "activas", "maximas", "fsync", "full_page_writes", "synchronous_commit", "wal_level", "archive_mode",
     "identidad", "identidad_nodo", "direccion", "puerto", "sistema", "identificador_sistema", "synchronous_standby_names", "transaction_read_only"}
 METRIC_KEYS = {"disponible", "servicio", "instancia", "desde", "alcance", "solicitudes", "exitosas", "errores_http", "latencia_media_ms", "latencia_max_ms", "recientes", "momento", "correlation_id", "metodo", "ruta", "status", "latencia_ms"}
 
@@ -456,6 +533,7 @@ def transitions(db, report):
         if old == "saludable" and state in {"degradado", "desconocido"} and not incident:
             iid = uuid4().hex
             doc = {"id": iid, "componente": key, "detectado_en": moment.isoformat(), "estado_anterior": old,
+                "ultima_captura_saludable": previous.capturado_en.isoformat(),
                 "estado_actual": state, "tipo_fallo": "observacion_interrumpida_causa_desconocida" if state == "desconocido" else "dependencia_bd" if component.get("base_datos") == "no_disponible" else "respuesta_http_degradada",
                 "alcance": "observado desde el servicio Compras; causa física no confirmada",
                 "instancia_continuadora": continuing, "recuperado_en": None, "indisponibilidad_segundos": None,
@@ -486,12 +564,90 @@ def report_document(data, observation):
     scenario = next(row for row in scenarios() if row["id"] == data.escenario)
     return {"id": uuid4().hex, "formato": "nexustix-evidencia-v1", "escenario": data.escenario,
         "nombre": scenario["nombre"], "fecha": observation["capturado_en"], "objetivo": scenario["objetivo"],
-        "conceptos": scenario["conceptos"], "componentes": scenario["componentes"],
+        "unidad_academica": "Unidad II", "conceptos": scenario["conceptos"], "componentes": scenario["componentes"],
         "acciones": clean(data.acciones), "esperado": scenario["esperado"], "observado": clean(data.observado, 2000),
         "evidencias": observation, "limitaciones": scenario["limitaciones"] + observation.get("limitaciones", []),
         "conclusion": clean(data.conclusion), "resultado": "sin_evaluar", "origen": "captura",
         "fase": getattr(data, "fase", "observacion"), "referencia_inicial": getattr(data, "referencia_inicial", None),
         "ventana_observacion_segundos": None}
+
+
+def evidence_phase(label, document):
+    evidence = document.get("evidencias") if isinstance(document.get("evidencias"), dict) else {}
+    rows = [row for row in evidence.get("componentes") or [] if isinstance(row, dict) and row.get("tipo") != "ruta"]
+    silent = lambda row: row.get("sonda_realizada") is True and row.get("http_status") is None
+    pick = lambda test: [row.get("id") for row in rows if test(row)]
+    return {"fase": label, "fecha": document.get("fecha"), "saludables": pick(lambda row: row.get("estado") == "saludable"),
+        "degradados": pick(lambda row: row.get("estado") in {"degradado", "caido"}), "sin_respuesta": pick(silent),
+        "desconocidos": pick(lambda row: row.get("estado") == "desconocido" and not silent(row)), "pendientes": evidence.get("pendientes")}
+
+
+def elapsed_seconds(start, end):
+    try:
+        first, last = [value if isinstance(value, datetime) else datetime.fromisoformat(str(value)) for value in (start, end)]
+        return round((last - first).total_seconds(), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def experiment_results(db, models_module, report, initial, failure, data):
+    """Compara capturas reales; todo lo aportado por el operador queda etiquetado como tal."""
+    measures = data.mediciones or OperatorMeasures()
+    phases = [evidence_phase("Estado inicial", initial)]
+    if failure:
+        phases.append(evidence_phase("Posterior a la falla", failure))
+    closing = evidence_phase("Posterior a la recuperación" if failure else "Captura final", report)
+    phases.append(closing)
+    faulted = phases[1] if failure else closing
+    rows = []
+
+    def add(group, metric, value, kind, note=""):
+        rows.append({"grupo": group, "metrica": metric, "valor": value, "tipo": kind, "nota": note})
+
+    faulty = bool(faulted["degradados"] or faulted["sin_respuesta"])
+    add("Disponibilidad", measures.operacion or "Operación", f"{measures.correctas or 0} correctas · {measures.fallidas or 0} fallidas de {measures.intentadas}" if measures.intentadas else "Sin medición", "medicion_declarada" if measures.intentadas else "desconocido")
+    add("Detección", "Última observación saludable", initial.get("fecha") if phases[0]["saludables"] else "Sin medición", "medicion" if phases[0]["saludables"] else "desconocido")
+    add("Detección", "Primera observación con fallo", faulted["fecha"] if faulty else "Sin medición", "medicion" if faulty else "desconocido", "La falla pudo comenzar antes de esta captura." if faulty else "")
+    window = elapsed_seconds(initial.get("fecha"), faulted["fecha"])
+    add("Detección", "Ventana entre observaciones", f"{window} s" if window is not None else "No determinable", "medicion" if window is not None else "desconocido", "Es una ventana, no un tiempo de detección.")
+    detection = elapsed_seconds(measures.inicio_falla, faulted["fecha"]) if measures.inicio_falla and faulty else None
+    add("Detección", "Tiempo hasta la primera observación", f"{detection} s" if detection is not None else "No determinable", "estimacion" if detection is not None else "desconocido", "Usa la marca de inicio declarada por el operador." if detection is not None else "Requiere una marca fiable del inicio.")
+    add("Recuperación", "Momento de la falla", measures.inicio_falla.isoformat() if measures.inicio_falla else "Desconocido", "medicion_declarada" if measures.inicio_falla else "desconocido")
+    restored = not closing["degradados"] and not closing["sin_respuesta"] and bool(closing["saludables"]) and bool(failure)
+    add("Recuperación", "Servicios observados como recuperados", closing["fecha"] if restored else "Sin medición", "medicion" if restored else "desconocido", "Los servicios responden; las funciones comerciales requieren su propia comprobación.")
+    add("RTO", "Objetivo", f"{measures.rto_objetivo_segundos} s" if measures.rto_objetivo_segundos is not None else "No declarado", "objetivo" if measures.rto_objetivo_segundos is not None else "desconocido")
+    rto = elapsed_seconds(measures.inicio_falla, measures.restauracion) if measures.inicio_falla and measures.restauracion else None
+    add("RTO", "Tiempo de recuperación", f"{rto} s" if rto is not None else "Sin medición", "estimacion" if rto is not None else "desconocido", "Calculado con las marcas declaradas por el operador." if rto is not None else "Dos capturas aisladas no determinan un RTO.")
+    add("RPO", "Objetivo", measures.rpo_objetivo or "No declarado", "objetivo" if measures.rpo_objetivo else "desconocido")
+    add("RPO", "Última transacción reconocida", measures.ultima_transaccion_reconocida or "No determinable", "medicion_declarada" if measures.ultima_transaccion_reconocida else "desconocido")
+    add("RPO", "Última transacción recuperada", measures.ultima_transaccion_recuperada or "No determinable", "medicion_declarada" if measures.ultima_transaccion_recuperada else "desconocido")
+    add("RPO", "Pérdida observada", measures.perdida_observada or "No determinable", "medicion_declarada" if measures.perdida_observada else "desconocido", "Con replicación asíncrona no se presume pérdida cero.")
+    source = (failure or report).get("evidencias") or {}
+    latencies = [row.get("latencia_ms") for row in source.get("componentes") or [] if isinstance(row, dict) and isinstance(row.get("latencia_ms"), (int, float))]
+    add("Latencia", "Máxima en la captura", f"{max(latencies)} ms" if latencies else "Sin medición", "medicion" if latencies else "desconocido")
+    add("Latencia", "Respuestas lentas (más de 800 ms)", sum(value > 800 for value in latencies) if latencies else "Sin medición", "medicion" if latencies else "desconocido")
+    add("Latencia", "Sondas sin respuesta", len(faulted["sin_respuesta"]), "medicion")
+    closing_evidence = report.get("evidencias") or {}
+    lsns = [f"{row.get('componente')}: {row['wal']['actual_lsn']}" for row in closing_evidence.get("persistencia") or [] if isinstance(row, dict) and isinstance(row.get("wal"), dict) and row["wal"].get("actual_lsn")]
+    add("Replicación", "LSN actual", " · ".join(lsns[:6]) or "Sin medición", "medicion" if lsns else "desconocido")
+    lags = [standby.get("lag_bytes") for base in (closing_evidence.get("infraestructura") or {}).get("bases", []) for standby in base.get("standbys", []) if isinstance(standby.get("lag_bytes"), (int, float))]
+    add("Replicación", "Mayor diferencia WAL", f"{max(lags)} bytes" if lags else "No determinable", "medicion" if lags else "desconocido", "Bytes de WAL, no tiempo.")
+    inventory = closing_evidence.get("inventario") or {}
+    add("Consistencia", "Inventario", "Consulta no disponible" if not inventory.get("verificable") else "Consistente" if inventory.get("consistente") is True else "Inconsistente o no confirmado", "medicion" if inventory.get("verificable") else "desconocido", "Solo describe esta captura.")
+    report["comparacion"], report["metricas"], report["pasos_recuperacion"] = phases, rows, list(data.pasos_recuperacion)
+    report["mediciones_operador"] = measures.model_dump(mode="json")
+    infrastructure = closing_evidence.get("infraestructura") or {}
+    since = datetime.fromisoformat(initial["fecha"])
+    report["experimento"] = {"id": report["id"], "perfil": infrastructure.get("perfil"), "nodos": [row.get("id") for row in infrastructure.get("nodos", [])],
+        "nodo_objetivo": data.nodo_objetivo, "incidentes": db.query(models_module).filter(models_module.detectado_en >= since).count()}
+    report["origen_datos"] = {"capturas": "Consultas del servidor en cada etapa", "mediciones_operador": "Declaradas por quien ejecutó el experimento", "proyeccion": "Inventario de la captura inicial"}
+    expected_source = initial.get("evidencias") or {}
+    projection = next((row for row in (expected_source.get("infraestructura") or {}).get("proyecciones", []) if row.get("tipo") == "nodo" and row.get("objetivo") == data.nodo_objetivo), None)
+    if projection:
+        expected = sorted(row.get("id") for row in expected_source.get("componentes") or [] if isinstance(row, dict) and row.get("nodo") == data.nodo_objetivo and row.get("tipo") != "ruta")
+        observed = sorted(set(faulted["degradados"]) | set(faulted["sin_respuesta"]))
+        report["proyeccion_vs_observado"] = {"nodo": data.nodo_objetivo, "previstos": expected, "observados": observed,
+            "previstos_no_observados": sorted(set(expected) - set(observed)), "observados_no_previstos": sorted(set(observed) - set(expected))}
 
 
 def install(app, models, get_db, require_admin, events_url):
@@ -528,6 +684,14 @@ def install(app, models, get_db, require_admin, events_url):
             initial = db.get(EvidenciaOperacion, data.referencia_inicial)
             if not initial or initial.escenario != data.escenario or initial.documento.get("fase") != "inicial" or initial.documento.get("origen") != "captura":
                 raise HTTPException(422, "Referencia inicial no corresponde a una captura real del mismo escenario")
+        failure = None
+        if data.referencia_falla:
+            failure = db.get(EvidenciaOperacion, data.referencia_falla)
+            if data.fase != "final" or not initial or not failure or failure.escenario != data.escenario or failure.documento.get("fase") != "observacion" or failure.documento.get("referencia_inicial") != data.referencia_inicial:
+                raise HTTPException(422, "Referencia de falla no corresponde a una observación de este experimento")
+        moments = [data.mediciones.inicio_falla, data.mediciones.restauracion] if data.mediciones else []
+        if any(moment is not None and moment.tzinfo is None for moment in moments):
+            raise HTTPException(422, "Las fechas declaradas requieren zona horaria")
         observation = snapshot(events_url, authorization)
         if node_operations.enabled():
             from shared.cluster_observer import observer
@@ -537,8 +701,10 @@ def install(app, models, get_db, require_admin, events_url):
         if initial:
             report["estado_inicial"] = initial.documento["evidencias"]
             report["ventana_observacion_segundos"] = round((datetime.fromisoformat(report["fecha"]) - datetime.fromisoformat(initial.documento["fecha"])).total_seconds(), 2)
-        db.add(EvidenciaOperacion(id=report["id"], escenario=data.escenario, documento=report))
         transitions(db, report)
+        if initial and data.fase == "final":
+            experiment_results(db, IncidenteOperacion, report, initial.documento, failure.documento if failure else None, data)
+        db.add(EvidenciaOperacion(id=report["id"], escenario=data.escenario, documento=report))
         db.commit()
         return report
 
@@ -573,6 +739,244 @@ def install(app, models, get_db, require_admin, events_url):
     def pending(db=Depends(get_db), _admin=Depends(require_admin)):
         return pending_values(db, models)
 
+    @app.get("/admin/operaciones/auditoria")
+    def audit_log(limit: int = Query(default=100, ge=1, le=200), db=Depends(get_db), _admin=Depends(require_admin)):
+        keys = ("accion", "recurso", "resultado", "actor", "rol", "operacion_id", "motivo", "correlation_id")
+        rows = db.query(models.RegistroJournal).filter(models.RegistroJournal.tipo == "AUDITORIA").order_by(models.RegistroJournal.id.desc()).limit(limit).all()
+        return {"registros": [{**{key: (row.detalles or {}).get(key) for key in keys}, "momento": iso_moment(row.timestamp), "instancia": row.instancia} for row in rows]}
+
+    @app.get("/admin/operaciones/seguridad")
+    def security_status(_admin=Depends(require_admin)):
+        return security_values()
+
+    @app.get("/admin/operaciones/outbox")
+    def outbox(limit: int = Query(default=20, ge=1, le=100), db=Depends(get_db), _admin=Depends(require_admin)):
+        return outbox_values(db, models, limit)
+
+    @app.get("/admin/operaciones/concurrencia")
+    def concurrency(evento_id: int | None = Query(default=None, gt=0), limit: int = Query(default=300, ge=1, le=500),
+                    db=Depends(get_db), _admin=Depends(require_admin)):
+        return concurrency_values(db, models, evento_id, limit)
+
+    @app.get("/admin/operaciones/recuperacion")
+    def recovery(limit: int = Query(default=50, ge=1, le=100), db=Depends(get_db), _admin=Depends(require_admin)):
+        return recovery_values(db, models, limit)
+
+
+def security_values():
+    """Solo indica cómo está configurado cada secreto: nunca su valor ni su ruta."""
+    def secret(label, name):
+        path = os.getenv(name + "_FILE")
+        return {"nombre": label, "fuente": "archivo" if path else "entorno" if os.getenv(name) else "no_configurado",
+            "presente": os.path.isfile(path) if path else bool(os.getenv(name))}
+    origins = [item.strip() for item in os.getenv("FRONTEND_ORIGINS", "").split(",") if item.strip()]
+    portal = urlsplit(os.getenv("PUBLIC_PORTAL_URL", "")) if os.getenv("PUBLIC_PORTAL_URL") else None
+    return {"secretos": [secret("Conexión a la base de Compras", "DATABASE_URL"), secret("Clave pública JWT", "JWT_PUBLIC_KEY"), secret("Token entre servicios", "EVENTOS_SERVICE_TOKEN")],
+        "origenes_permitidos": len(origins), "origen_comodin": "*" in origins, "esquema_portal": portal.scheme if portal else None,
+        "alcance": "Vista de esta instancia de Compras."}
+
+
+def outbox_values(db, models, limit):
+    """Lectura acotada del outbox; publicado_en solo acredita la notificación interna."""
+    try:
+        with db.begin_nested():
+            rows = db.query(models.Outbox).order_by(models.Outbox.id.desc()).limit(limit).all()
+            pending = db.query(models.Outbox).filter(models.Outbox.publicado_en.is_(None)).count()
+    except SQLAlchemyError:
+        return {"disponible": False, "registros": [], "nota": "Outbox no consultable; comprobar persistencia y migraciones."}
+    def row_view(row):
+        details = row.datos if isinstance(row.datos, dict) else {}
+        return {"id": row.id, "tipo": clean(row.tipo, 40), "orden_id": row.orden_id, "productor": "Compras",
+            "instancia": clean(details.get("instancia"), 80) or None,
+            "registrado_en": row.creado_en.isoformat() if row.creado_en else None,
+            "procesado_en": row.publicado_en.isoformat() if row.publicado_en else None,
+            "estado": "notificacion_interna_registrada" if row.publicado_en else "pendiente"}
+    return {"disponible": True, "pendientes": pending, "registros": [row_view(row) for row in rows],
+        "nota": "El procesamiento registra una notificación en la misma base de Compras. No hay broker externo ni confirmación de lectura o entrega al comprador."}
+
+
+def concurrency_values(db, models, event_id, limit):
+    """Compara pedidos que apuntaron al mismo recurso sin exponer a los compradores."""
+    reservations = {"reservada": "reservada", "pagada": "reservada", "emitiendo": "reservada", "completada": "confirmada"}
+    try:
+        with db.begin_nested():
+            orders = db.query(models.Orden).order_by(models.Orden.creado_en.desc(), models.Orden.id).limit(limit).all()
+    except SQLAlchemyError:
+        return {"disponible": False, "grupos": [], "nota": "Pedidos no consultables; comprobar persistencia y migraciones."}
+    groups = {}
+    for order in orders:
+        for item in order.items if isinstance(order.items, list) else []:
+            if not isinstance(item, dict) or (event_id is not None and item.get("evento_id") != event_id):
+                continue
+            rejected = item.get("rechazo_reserva") if isinstance(item.get("rechazo_reserva"), dict) else {}
+            conflict = rejected.get("status_http") == 409
+            result = ("conflicto_disponibilidad" if conflict else "reserva_aceptada" if order.estado in reservations
+                else "sin_resultado" if order.estado == "reservando" else "cancelada_o_compensada")
+            operation = {"operacion_id": clean(item.get("operacion_id"), 64) or None,
+                "inicio_registrado": order.creado_en.isoformat() if order.creado_en else None, "resultado": result,
+                "conflicto": clean(rejected.get("detalle"), 200) if conflict else None,
+                "estado_reserva": reservations.get(order.estado), "estado_final": order.estado, "motivo": clean(order.motivo, 60) or None}
+            seats = item.get("asientos") if isinstance(item.get("asientos"), list) else []
+            targets = [("asiento", clean(seat, 40)) for seat in seats[:100]]
+            if not targets:
+                targets = [("zona", clean(item.get("zona"), 80))] if item.get("zona") else [("general", "Admisión general")]
+            for kind, label in targets:
+                groups.setdefault((item.get("evento_id"), kind, label), []).append(operation)
+    def evidence(rows):
+        conflicts = any(row["resultado"] == "conflicto_disponibilidad" for row in rows)
+        accepted = any(row["resultado"] == "reserva_aceptada" for row in rows)
+        return "conflicto_con_contraparte" if conflicts and accepted else "conflicto_sin_contraparte" if conflicts else "mismo_recurso_sin_conflicto"
+    comparable = [(key, rows) for key, rows in groups.items() if len(rows) > 1 or evidence(rows) != "mismo_recurso_sin_conflicto"]
+    rank = {"conflicto_con_contraparte": 0, "conflicto_sin_contraparte": 1, "mismo_recurso_sin_conflicto": 2}
+    comparable.sort(key=lambda entry: (rank[evidence(entry[1])], -len(entry[1])))
+    return {"disponible": True, "pedidos_analizados": len(orders), "limite": limit, "grupos_totales": len(comparable),
+        "grupos": [{"evento_id": key[0], "tipo_recurso": key[1], "recurso": key[2], "evidencia": evidence(rows), "total_operaciones": len(rows),
+            "operaciones": sorted(rows, key=lambda row: row["inicio_registrado"] or "")[:10]} for key, rows in comparable[:30]],
+        "limitaciones": ["La fecha es la creación persistida del pedido: no marca inicio ni fin de la petición y no prueba solapamiento temporal.",
+            "Solo se analizan los pedidos más recientes dentro del límite; la contraparte de un conflicto puede quedar fuera.",
+            "El estado de reserva se deduce del estado del pedido; el recorrido de cada operación consulta Eventos."]}
+
+
+def iso_moment(value):
+    return value.isoformat() if isinstance(value, datetime) else value
+
+
+def stalled(moment):
+    """Una transición normal tarda segundos; sin fecha tampoco se presume que avance."""
+    if not isinstance(moment, datetime):
+        return True
+    return (now() - moment.replace(tzinfo=moment.tzinfo or timezone.utc)).total_seconds() > 60
+
+
+def masked_key(value):
+    return "…" + str(value)[-4:] if value else None
+
+
+SAGA_FORWARD = {"reservada", "pagada", "emitiendo", "completada"}
+SAGA_COMPENSATION = {"cancelando", "cancelada", "reembolsando", "reembolsada"}
+PENDING_STEPS = {"reservando": "Verificar o solicitar la reserva en Eventos", "pagada": "Confirmar la reserva en Eventos",
+    "emitiendo": "Emitir las entradas", "cancelando": "Liberar la reserva en Eventos", "reembolsando": "Liberar la reserva y cerrar el reembolso"}
+COMPENSATION_REASONS = {"pago_rechazado": "Pago simulado rechazado.", "reserva_expirada": "Reserva vencida.",
+    "inventario_no_disponible": "Eventos rechazó una reserva del pedido.", "cancelada_por_usuario": "Cancelación solicitada para el pedido.",
+    "evento_cancelado": "Evento cancelado."}
+
+
+def saga_order_view(order, transitions, remote_states, payment):
+    items = [item for item in order.items if isinstance(item, dict)] if isinstance(order.items, list) else []
+    rejected = next((item["rechazo_reserva"] for item in items if isinstance(item.get("rechazo_reserva"), dict)), None)
+    latest = max((row.creado_en for row in transitions.values() if row.creado_en), default=order.creado_en)
+    waiting = "recuperacion_requerida" if stalled(latest) else "pendiente"
+    known = [remote_states.get(item.get("operacion_id"), "sin_consulta") for item in items]
+
+    def step(name, state, evidence, kind=None):
+        row = transitions.get(kind) if kind else None
+        details = row.datos if row is not None and isinstance(row.datos, dict) else {}
+        return {"paso": name, "estado": state, "evidencia": clean(evidence, 300), "momento": iso_moment(row.creado_en) if row is not None else None,
+            "origen": None if row is None else "solicitud_http" if details.get("correlation_id") else "trabajo_recuperacion"}
+
+    steps = [step("Solicitud recibida", "completado", "Existe un pedido persistido para la solicitud.", "reservando"),
+        step("Operación identificada con clave idempotente", "completado", f"{len(items)} operación(es) derivadas de una clave durable.", "reservando"),
+        step("Pedido persistido en Compras", "completado", "Compras registra el pedido antes de contactar a Eventos.", "reservando")]
+    if rejected:
+        steps += [step("Reserva solicitada a Eventos", "completado", "Eventos respondió y rechazó la reserva."),
+            step("Inventario reservado", "fallido", rejected.get("detalle") or f"HTTP {rejected.get('status_http')}")]
+    elif "reservada" in transitions:
+        steps += [step("Reserva solicitada a Eventos", "completado", "Compras recibió y validó la respuesta de Eventos.", "reservada"),
+            step("Inventario reservado", "completado", "Reserva aceptada y registrada por Compras.", "reservada")]
+    elif order.estado == "reservando":
+        accepted = any(value in {"reservada", "confirmada"} for value in known)
+        absent = bool(known) and all(value == "ausente" for value in known)
+        steps += [step("Reserva solicitada a Eventos", "desconocido", "Resultado remoto pendiente de verificación."),
+            step("Inventario reservado", "recuperacion_requerida" if accepted else waiting if absent else "desconocido",
+                "Eventos registra la reserva; Compras todavía no persiste su resultado." if accepted
+                else "Eventos no registra esta reserva en esta consulta." if absent else "Resultado remoto pendiente de verificación.")]
+    else:
+        steps.append(step("Inventario reservado", "desconocido", "No hay registro de una reserva aceptada."))
+    approved = payment is not None and payment.estado in {"aprobado", "reembolsado", "reembolsado_parcial"}
+    compensating = order.estado in SAGA_COMPENSATION
+    if payment is not None:
+        steps.append(step("Pago simulado", "completado" if approved else "fallido", f"Pago registrado: {payment.estado}.", "pagada" if approved else None))
+    elif order.estado == "reservada":
+        steps.append(step("Pago simulado", "pendiente", "Reserva vigente a la espera del pago."))
+    if "emitiendo" in transitions:
+        steps.append(step("Confirmación de reserva", "completado", "Eventos confirmó la reserva y Compras lo validó.", "emitiendo"))
+    elif not compensating:
+        steps.append(step("Confirmación de reserva", waiting if order.estado == "pagada" else "pendiente", "Todavía no se registra la confirmación."))
+    if "completada" in transitions:
+        steps += [step("Emisión de entradas", "completado", "Entradas emitidas.", "completada"),
+            step("Pedido completado", "completado", "Cierre registrado por Compras.", "completada")]
+    elif not compensating:
+        steps += [step("Emisión de entradas", waiting if order.estado == "emitiendo" else "pendiente", "Todavía no se registra la emisión."),
+            step("Pedido completado", "pendiente", "Todavía no se registra el cierre.")]
+    compensation = []
+    started = next((kind for kind in ("cancelando", "reembolsando") if kind in transitions), None)
+    if started or compensating:
+        compensation.append(step("Compensación iniciada", "completado", COMPENSATION_REASONS.get(order.motivo, f"Motivo registrado: {order.motivo or 'no informado'}."), started))
+        done = next((kind for kind in ("cancelada", "reembolsada") if kind in transitions), None)
+        released = bool(known) and all(value == "liberada" for value in known)
+        compensation.append(step("Reserva liberada en Eventos", "compensado" if done else waiting,
+            "Compras recibió la confirmación de liberación." if done else "Eventos registra la liberación; Compras aún debe cerrar el pedido." if released else "Liberación aún no confirmada.", done))
+        if "reembolsando" in transitions:
+            refunded = payment is not None and str(payment.estado).startswith("reembolsado")
+            compensation.append(step("Reembolso simulado", "compensado" if refunded else waiting, f"Pago registrado: {payment.estado if payment is not None else 'sin registro'}."))
+    every = steps + compensation
+    return {"tipo": "pedido", "pasos": steps, "compensaciones": compensation, "incierto": any(row["estado"] in {"desconocido", "recuperacion_requerida"} for row in every)}
+
+
+def saga_purchase_view(purchases, claims, remote_states):
+    steps = []
+    for claim in claims[:20]:
+        steps.append({"paso": "Solicitud identificada con clave idempotente", "estado": "completado" if claim.state == "completed" else "recuperacion_requerida" if stalled(claim.created_at) else "pendiente",
+            "evidencia": "Respuesta final persistida." if claim.response_status else "Respuesta final aún no persistida.", "momento": iso_moment(claim.created_at), "origen": None})
+    for operation, state in list(remote_states.items())[:20]:
+        unknown = state in {None, "ausente"}
+        steps.append({"paso": "Reserva en Eventos", "estado": "desconocido" if unknown else {"liberada": "compensado", "reservada": "pendiente"}.get(state, "completado"),
+            "evidencia": "Resultado remoto pendiente de verificación." if state is None else "Eventos no registra esta reserva." if state == "ausente" else f"Eventos registra: {state}.", "momento": None, "origen": None})
+    for purchase in purchases[:20]:
+        steps.append({"paso": "Compra persistida", "estado": "completado" if purchase.estado == "confirmada" else "desconocido",
+            "evidencia": f"Estado registrado: {clean(purchase.estado, 40)}.", "momento": iso_moment(purchase.creado_en), "origen": None})
+    return {"tipo": "compra_directa", "pasos": steps, "compensaciones": [], "incierto": any(row["estado"] in {"desconocido", "recuperacion_requerida"} for row in steps)}
+
+
+def recovery_values(db, models, limit):
+    """Foto de solo lectura: el trabajo de recuperación existente sigue siendo el único que actúa."""
+    try:
+        with db.begin_nested():
+            orders = db.query(models.Orden).filter(models.Orden.estado.in_(list(PENDING_STEPS))).order_by(models.Orden.creado_en).limit(limit).all()
+            ids = [order.id for order in orders]
+            latest = dict(db.query(models.Outbox.orden_id, func.max(models.Outbox.creado_en)).filter(models.Outbox.orden_id.in_(ids)).group_by(models.Outbox.orden_id).all()) if ids else {}
+            reserved = {row[0] for row in db.query(models.Outbox.orden_id).filter(models.Outbox.orden_id.in_(ids), models.Outbox.tipo == "reservada")} if ids else set()
+            claims = db.query(models.IdempotencyRequest).filter_by(state="processing").order_by(models.IdempotencyRequest.created_at).limit(limit).all()
+            recent = db.query(models.Outbox).order_by(models.Outbox.id.desc()).limit(300).all()
+            recovered_ids = list({row.orden_id for row in recent if row.tipo in (SAGA_FORWARD | SAGA_COMPENSATION) and not (row.datos or {}).get("correlation_id")})[:20]
+            recovered = {order.id: order for order in db.query(models.Orden).filter(models.Orden.id.in_(recovered_ids))} if recovered_ids else {}
+    except SQLAlchemyError:
+        return {"disponible": False, "pendientes": [], "recuperadas": [], "nota": "Pedidos no consultables; comprobar persistencia y migraciones."}
+    pending = [{"tipo": "pedido", "referencia": order.id, "orden_id": order.id,
+        "operaciones": [clean(item.get("operacion_id"), 64) for item in order.items if isinstance(item, dict)][:5] if isinstance(order.items, list) else [],
+        "ultimo_estado": order.estado, "motivo": clean(order.motivo, 60) or None,
+        "reserva_remota": "Aceptada según Compras" if order.id in reserved else "Sin constancia en Compras; consulte el recorrido",
+        "paso_pendiente": PENDING_STEPS[order.estado], "modalidad": "compensacion" if order.estado in SAGA_COMPENSATION else "adelante",
+        "intervencion": "Revisar: más de 60 s sin una transición nueva" if stalled(latest.get(order.id) or order.creado_en) else "No indicada",
+        "actualizado_en": iso_moment(latest.get(order.id) or order.creado_en)} for order in orders]
+    pending += [{"tipo": "compra_directa", "referencia": claim.operacion_id, "orden_id": None, "operaciones": [claim.operacion_id],
+        "ultimo_estado": "processing", "motivo": None, "reserva_remota": "Sin constancia en Compras; consulte el recorrido",
+        "paso_pendiente": "Determinar el resultado de la compra directa", "modalidad": "por_determinar",
+        "intervencion": "Revisar: más de 60 s sin respuesta persistida" if stalled(claim.created_at) else "No indicada",
+        "actualizado_en": iso_moment(claim.created_at)} for claim in claims]
+    history = []
+    for order_id, order in recovered.items():
+        rows = sorted((row for row in recent if row.orden_id == order_id and row.tipo in (SAGA_FORWARD | SAGA_COMPENSATION | {"reservando"})), key=lambda row: row.id)
+        first = next((index for index, row in enumerate(rows) if not (row.datos or {}).get("correlation_id")), None)
+        if first is None:
+            continue
+        history.append({"orden_id": order.id, "estado_anterior": rows[first - 1].tipo if first else None, "accion_observada": rows[first].tipo,
+            "estado_posterior": order.estado, "modalidad": "compensacion" if rows[first].tipo in SAGA_COMPENSATION else "adelante",
+            "secuencia": [row.tipo for row in rows], "actualizado_en": iso_moment(rows[-1].creado_en)})
+    history.sort(key=lambda row: row["actualizado_en"] or "", reverse=True)
+    return {"disponible": True, "pendientes": pending, "recuperadas": history, "consultado_en": now().isoformat(),
+        "nota": "Una transición sin correlación HTTP la registró un trabajo en segundo plano. Solo se revisan los 300 eventos más recientes del outbox."}
+
 
 def pending_values(db, models):
     try:
@@ -606,12 +1010,19 @@ def purchase_trace(db, models, identifier, events_url, authorization):
         raise HTTPException(404, "No se encontró una operación persistida con ese identificador")
     timeline, correlations = [], set()
 
-    def add(moment, stage, source, state, instance=None, detail=""):
+    def add(moment, stage, source, state, instance=None, detail="", clock=None, local=None, relation=None):
         timeline.append({"momento": moment.isoformat() if isinstance(moment, datetime) else moment,
             "etapa": clean(stage, 100), "fuente": source, "estado": clean(state, 80),
-            "instancia": clean(instance, 80) or None, "detalle": clean(detail, 600)})
+            "instancia": clean(instance, 80) or None, "detalle": clean(detail, 600),
+            # Los pasos de la Saga guardan reloj_t=0: ausencia de reloj, no un valor Lamport.
+            "reloj_logico": clock if isinstance(clock, int) and clock > 0 else None,
+            "orden_local": local, "relacion": clean(relation, 200) or None})
 
     operation_ids, purchases = [], []
+    transitions, payment = {}, None
+    # Estas transiciones solo se persisten tras validar la respuesta correspondiente de Eventos.
+    causes = {"reservada": "Posterior a la respuesta validada de Eventos a la reserva", "emitiendo": "Posterior a la respuesta validada de Eventos a la confirmación",
+        "cancelada": "Posterior a la respuesta validada de Eventos a la liberación", "reembolsada": "Posterior a la respuesta validada de Eventos a la liberación"}
     if order:
         add(order.creado_en, "Solicitud persistida", "ordenes", order.estado, detail="Estado actual de la orden; la fecha corresponde a su creación.")
         operation_ids = [item["operacion_id"] for item in order.items if isinstance(item, dict) and item.get("operacion_id")]
@@ -621,8 +1032,9 @@ def purchase_trace(db, models, identifier, events_url, authorization):
             cid = details.get("correlation_id")
             if cid and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(cid)):
                 correlations.add(cid)
+            transitions.setdefault(item.tipo, item)
             add(item.creado_en, "Saga: " + item.tipo, "outbox", details.get("estado", item.tipo), details.get("instancia"),
-                "Notificación publicada" if item.publicado_en else "Notificación pendiente de publicar")
+                "Notificación publicada" if item.publicado_en else "Notificación pendiente de publicar", None, f"Outbox de Compras #{item.id}", causes.get(item.tipo))
         payment = db.get(models.Pago, order.id)
         if payment:
             add(payment.creado_en, "Pago simulado", "pagos_simulados", payment.estado, detail="Estado actual del registro; fecha de creación del pago.")
@@ -648,7 +1060,10 @@ def purchase_trace(db, models, identifier, events_url, authorization):
         predicates.append(models.RegistroJournal.detalles["orden_id"].as_string() == order.id)
     if predicates:
         for row in db.query(models.RegistroJournal).filter(or_(*predicates)).order_by(models.RegistroJournal.id).limit(200):
-            add(row.timestamp, row.tipo, "journal_compras", "registrado", row.instancia, "Evento funcional persistido; detalles sensibles omitidos.")
+            details = row.detalles if isinstance(row.detalles, dict) else {}
+            sent, received = details.get("reloj_enviado"), details.get("reloj_eventos")
+            add(row.timestamp, row.tipo, "journal_compras", "registrado", row.instancia, "Evento funcional persistido; detalles sensibles omitidos.", row.reloj_t,
+                f"Journal de Compras #{row.id}", f"Compras envió T={sent} y recibió T={received} de Eventos antes de este evento" if isinstance(sent, int) and isinstance(received, int) else None)
             cid = (row.detalles or {}).get("correlation_id")
             if cid and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(cid)):
                 correlations.add(cid)
@@ -656,12 +1071,16 @@ def purchase_trace(db, models, identifier, events_url, authorization):
         "No se persiste cada lectura previa de disponibilidad ni cada intento HTTP; una reserva confirma el efecto, no todos los intentos."]
     entries, _ = topology(events_url)
     events_target = next((e["url"] for e in entries if e["id"] == "eventos_entrada"), events_url)
+    remote_states = {}
     for opid in operation_ids[:20]:
         result = fetch(events_target, "/eventos/reservas/" + quote(str(opid), safe=""), internal=True)
         data = result["datos"]
+        remote_states[opid] = data["estado"] if result["ok"] and data.get("estado") else "ausente" if result["status"] == 404 else None
         if result["ok"] and data.get("estado"):
-            add(data.get("creado_en"), "Reserva de inventario", "reservas_stock (Eventos)", data["estado"],
-                result.get("instancia"), "Estado consultado ahora; no implica conocer la hora de cada transición.")
+            # La instancia del encabezado respondió a esta lectura; no necesariamente registró la reserva.
+            add(data.get("creado_en"), "Reserva de inventario", "reservas_stock (Eventos)", data["estado"], None,
+                "Estado consultado ahora" + (f" a la instancia {clean(result.get('instancia'), 80)}" if result.get("instancia") else "")
+                + "; no implica conocer la hora de cada transición ni quién la registró.")
         else:
             missing.append("Reserva remota no verificable para operación " + clean(opid, 80))
     if not correlations:
@@ -671,6 +1090,10 @@ def purchase_trace(db, models, identifier, events_url, authorization):
         "estado": order.estado if order else purchase.estado if purchase else operation.state,
         "consultado_en": now().isoformat(), "correlaciones": sorted(correlations), "operaciones": operation_ids,
         "eventos": timeline, "faltantes": missing,
+        "saga": saga_order_view(order, transitions, remote_states, payment) if order else saga_purchase_view(purchases, claims, remote_states),
+        "idempotencia": ([{"referencia": "Pedido " + order.id, "clave": masked_key(order.clave), "estado": order.estado, "respuesta_http": None,
+                "creado_en": iso_moment(order.creado_en), "intentos": None}] if order else []) + [{"referencia": "Operación " + claim.operacion_id, "clave": masked_key(claim.idempotency_key),
+                "estado": claim.state, "respuesta_http": claim.response_status, "creado_en": iso_moment(claim.created_at), "intentos": None} for claim in claims[:20]],
         "limitaciones": ["Lecturas distribuidas sin snapshot global; estados pueden avanzar durante la consulta.",
             "Fechas de creación y eventos durables se distinguen de estados consultados sin timestamp.",
             "La trazabilidad no expone usuarios, claves idempotentes, tokens, cuerpos HTTP ni códigos QR."]}

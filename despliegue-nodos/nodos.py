@@ -113,6 +113,8 @@ def compare_inventories(previous, current, acknowledged):
         changes.append("Cambió el acceso estable declarado; actualizar y comprobar DNS/proxy externo de forma coordinada")
     if previous["release"] != current["release"]:
         changes.append(f"Etiqueta de versión declarada: {current['release']}; comprobar y distribuir el código correspondiente en todas las PC")
+    if previous["profile"] != current["profile"]:
+        changes.append(f"Perfil declarado: {previous['profile']} → {current['profile']}; conservar la identidad y aplicar los cambios de topología indicados")
     return changes
 
 
@@ -129,6 +131,8 @@ def prepare(inventory_path, destination, source_root, previous_path=None, acknow
     generation_history = {domain: {} for domain in DOMAINS}
     if previous_path:
         previous = Path(previous_path).expanduser().resolve()
+        if destination.is_relative_to(previous):
+            raise InventoryError("Use un destino NUEVO separado de --previous; no mezclar entregas dentro de una instalación anterior")
         private_directory(previous)
         if (previous / "INCOMPLETE").exists():
             raise InventoryError("La entrega anterior está incompleta; no se usa como origen")
@@ -138,6 +142,10 @@ def prepare(inventory_path, destination, source_root, previous_path=None, acknow
         if (metadata.get("deployment") != inventory["deployment"] or not isinstance(stored_identity, str)
                 or len(stored_identity) != 32 or any(char not in "0123456789abcdef" for char in stored_identity)):
             raise InventoryError("Identidad de instalación anterior no válida")
+        if metadata.get("inventory_sha256") != inventory_fingerprint(before):
+            raise InventoryError("El inventario de --previous no coincide con su installation.json; use una entrega íntegra y pase los cambios como inventario nuevo")
+        if metadata.get("profile", before["profile"]) != before["profile"]:
+            raise InventoryError("El perfil de --previous no coincide con su installation.json; no mezclar archivos de entregas distintas")
         identity = metadata["installation_id"]
         changes = compare_inventories(before, inventory, acknowledged)
         generation_history = metadata.get("generation_history", {
@@ -157,7 +165,7 @@ def prepare(inventory_path, destination, source_root, previous_path=None, acknow
     for domain in DOMAINS:
         generation_history[domain].update(inventory["databases"][domain]["generations"])
     # Renderizar todo antes de crear archivos; no consulta la infraestructura.
-    outputs = [(node, render_node(inventory, node, source_root)) for node in inventory["nodes"]]
+    outputs = [(node, render_node(inventory, node, source_root, installation_id=identity)) for node in inventory["nodes"]]
     previous_umask = os.umask(0o077)
     try:
         destination.mkdir(parents=True, mode=0o700)
@@ -177,6 +185,7 @@ def prepare(inventory_path, destination, source_root, previous_path=None, acknow
         write_secret(destination / "inventory.yml", yaml.safe_dump(inventory, sort_keys=False))
         metadata = {"version": 1, "deployment": inventory["deployment"], "installation_id": identity,
                     "inventory_sha256": inventory_fingerprint(inventory), "release": inventory["release"],
+                    "profile": inventory["profile"],
                     "db_transitions_acknowledged": sorted(set(acknowledged)), "changes": changes,
                     "generation_history": generation_history,
                     "note": "Preparación de archivos; no acredita fencing, replicación ni despliegue"}

@@ -6,6 +6,7 @@ No hay una transacción ACID entre Compras y Eventos.
 """
 import hashlib
 import io
+import ipaddress
 import json
 import os
 import secrets
@@ -13,6 +14,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Literal
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import requests
@@ -37,6 +39,7 @@ class OrderItem(BaseModel):
     evento_id: int = Field(gt=0)
     cantidad: int = Field(ge=1, le=100)
     asientos: list[str] = Field(default_factory=list, max_length=100)
+    zona: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 class OrderRequest(BaseModel):
@@ -59,8 +62,15 @@ class RemoteUnavailable(Exception):
     pass
 
 
+class RemoteForbidden(RemoteUnavailable):
+    """Eventos respondió 403: decisión de permisos, no una caída."""
+
+
 class RemoteRejected(Exception):
-    pass
+    def __init__(self, status_code=None, detail=None):
+        self.status_code = status_code
+        self.detail = detail if isinstance(detail, str) else None
+        super().__init__(self.detail or "Solicitud rechazada por Eventos")
 
 
 class EventsClient:
@@ -87,7 +97,14 @@ class EventsClient:
                         self.failures = 0
                     if response.status_code >= 300:
                         if response.status_code in (400, 404, 409, 422):
-                            raise RemoteRejected()
+                            try:
+                                rejection = response.json()
+                            except ValueError:
+                                rejection = {}
+                            raise RemoteRejected(response.status_code,
+                                rejection.get("detail") if isinstance(rejection, dict) else None)
+                        if response.status_code == 403:
+                            raise RemoteForbidden()
                         raise RemoteUnavailable()  # Auth/configuración: conservar la Saga.
                     payload = response.json()
                     if not isinstance(payload, dict):
@@ -134,9 +151,14 @@ class Coordinator:
 
     def snapshot(self, db, order):
         payment = db.get(self.m.Pago, order.id)
+        conflict = next(({"evento_id": item["evento_id"], "zona": item.get("zona"),
+                          "asientos": item.get("asientos", []),
+                          "mensaje": item["rechazo_reserva"].get("detalle"), "status_http": 409}
+                         for item in order.items if item.get("rechazo_reserva", {}).get("status_http") == 409), None)
         return {"id": order.id, "estado": order.estado, "items": order.items,
             "total_centimos": order.total_centimos, "moneda": "PEN", "expira_en": order.expira_en.isoformat(),
             "pago": payment.estado if payment else "pendiente", "motivo": order.motivo,
+            "conflicto_disponibilidad": conflict,
             "reembolsado_centimos": payment.reembolsado_centimos if payment else 0,
             "creado_en": order.creado_en.isoformat() if order.creado_en else None}
 
@@ -150,10 +172,15 @@ class Coordinator:
         if sum(i.cantidad for i in data.items) > 200:
             raise HTTPException(422, "Máximo 200 entradas por pedido")
         for item in data.items:
+            if item.zona is not None:
+                item.zona = item.zona.strip()
+                if not item.zona or item.asientos:
+                    raise HTTPException(422, "Seleccione zona y cantidad sin asientos numerados")
             if item.asientos and (len(item.asientos) != item.cantidad or len(set(item.asientos)) != item.cantidad
                                   or any(not s or len(s) > 40 or ',' in s for s in item.asientos)):
                 raise HTTPException(422, "Asientos inválidos")
-        digest = hashlib.sha256(json.dumps(data.model_dump(), sort_keys=True).encode()).hexdigest()
+        # Omitir zona ausente conserva la huella de pedidos anteriores al selector.
+        digest = hashlib.sha256(json.dumps(data.model_dump(exclude_none=True), sort_keys=True).encode()).hexdigest()
         row = db.query(self.m.Orden).filter_by(clave=key).first()
         if row is None:
             if db.query(self.m.CancelacionEvento).filter(self.m.CancelacionEvento.evento_id.in_([i.evento_id for i in data.items])).first():
@@ -161,7 +188,7 @@ class Coordinator:
             order_id = uuid4().hex
             row = self.m.Orden(id=order_id, clave=key, request_hash=digest,
                 auth_subject=principal.subject, usuario_id=principal.user_id, estado="reservando",
-                items=[{**item.model_dump(), "operacion_id": f"ord-{order_id}-{idx}"} for idx, item in enumerate(data.items)],
+                items=[{**item.model_dump(exclude_none=True), "operacion_id": f"ord-{order_id}-{idx}"} for idx, item in enumerate(data.items)],
                 total_centimos=0, expira_en=now()+timedelta(seconds=max(30, int(os.getenv("ORDER_TTL_SECONDS", "600")))))
             db.add(row)
             try:
@@ -190,7 +217,8 @@ class Coordinator:
                     for item in order.items:
                         payload = self.events.call("POST", f"/eventos/{item['evento_id']}/reservar",
                             {"operacion_id": item["operacion_id"], "cantidad": item["cantidad"],
-                             "asientos": ",".join(item["asientos"])})
+                             "asientos": ",".join(item["asientos"]),
+                             **({"zona": item["zona"]} if item.get("zona") else {})})
                         self.validate_reservation(payload, item)
                         items.append({**item, "total_centimos": payload["total_centimos"]})
                     order.items = items
@@ -239,27 +267,35 @@ class Coordinator:
                     order.items = [{**item, "cancelado": True} for item in order.items]
                     self.state(db, order, "reembolsada" if refund else "cancelada")
                     continue
-            except RemoteRejected:
+            except RemoteRejected as rejection:
+                rejected_operation = item["operacion_id"] if order.estado == "reservando" else None
                 db.rollback()
                 order = self.lock(db, order_id)
                 if order.estado == "reservando":
                     order.motivo = "inventario_no_disponible"
+                    order.items = [{**entry, "rechazo_reserva": {
+                        "status_http": rejection.status_code, "detalle": rejection.detail}}
+                        if entry["operacion_id"] == rejected_operation else entry for entry in order.items]
                     self.state(db, order, "cancelando")
                     continue
-                raise HTTPException(503, "Operación pendiente de conciliación; no se compensó un pago confirmado")
+                raise HTTPException(503, {"orden_id": order_id, "recuperacion_requerida": True,
+                    "mensaje": "Operación pendiente de conciliación; consulte el estado del pedido"},
+                    headers={"Retry-After": "2"})
             except RemoteUnavailable:
                 db.rollback()
                 raise HTTPException(503, {"orden_id": order_id, "recuperacion_requerida": True}, headers={"Retry-After": "2"})
             result = self.snapshot(db, order)
             db.rollback()
             return result
-        raise HTTPException(503, "Pedido pendiente de recuperación")
+        raise HTTPException(503, {"orden_id": order_id, "recuperacion_requerida": True,
+            "mensaje": "Pedido pendiente de recuperación"}, headers={"Retry-After": "2"})
 
     @staticmethod
     def validate_reservation(payload, item):
         if (payload.get("operacion_id") != item["operacion_id"] or payload.get("evento_id") != item["evento_id"]
             or payload.get("cantidad") != item["cantidad"] or payload.get("estado_reserva") not in {"reservada", "confirmada"}
             or type(payload.get("total_centimos")) is not int or payload["total_centimos"] < 0
+            or payload.get("zona") != item.get("zona")
             or sorted(payload.get("asientos", [])) != sorted(item["asientos"])):
             raise RemoteUnavailable()
 
@@ -274,6 +310,15 @@ class Coordinator:
                 db.add(self.m.Entrada(id=secrets.token_urlsafe(32), orden_id=order.id, compra_id=purchase.id,
                     evento_id=item["evento_id"], item=idx, numero=number,
                     asiento=item["asientos"][number] if item["asientos"] else None, estado="emitida"))
+
+    def ticket_location(self, db, ticket):
+        # La zona y el precio histórico ya viven en el ítem durable del pedido.
+        order = db.get(self.m.Orden, ticket.orden_id)
+        item = order.items[ticket.item] if order and 0 <= ticket.item < len(order.items) else {}
+        result = {"zona": item.get("zona")}
+        if item.get("zona") and item.get("cantidad") and type(item.get("total_centimos")) is int:
+            result["precio_centimos"] = item["total_centimos"] // item["cantidad"]
+        return result
 
     def pay(self, db, order_id, principal, outcome):
         order = self.lock(db, order_id)
@@ -608,13 +653,67 @@ class Coordinator:
         self.worker.start()
 
 
+class SecurityAudit:
+    """Registro en journal_compras sin códigos QR ni cuerpos; un fallo aquí no detiene el negocio."""
+    def __init__(self, models, sessions, instance):
+        self.m, self.sessions, self.instance = models, sessions, str(instance)[:16]
+        self.denials, self.lock = {}, threading.Lock()
+
+    def entry(self, action, resource, result, principal, operation=None, reason=None):
+        return self.m.RegistroJournal(reloj_t=0, instancia=self.instance, tipo="AUDITORIA", mensaje=f"{action}: {result}",
+            detalles={"accion": action, "recurso": resource, "resultado": result, "actor": principal.subject, "rol": principal.role,
+                "operacion_id": operation, "motivo": reason, "correlation_id": correlation_id.get() or None})
+
+    def record(self, action, resource, result, principal, operation=None, reason=None):
+        try:
+            with self.sessions() as db:
+                db.add(self.entry(action, resource, result, principal, operation, reason))
+                db.commit()
+        except SQLAlchemyError:
+            pass
+
+    def denied(self, principal, route):
+        # Un cliente insistente genera como máximo un registro por minuto y ruta.
+        key = (principal.subject, route)
+        with self.lock:
+            if time.monotonic() - self.denials.get(key, -60) < 60:
+                return
+            if len(self.denials) >= 512:
+                self.denials.clear()
+            self.denials[key] = time.monotonic()
+        self.record("acceso_administrativo", route, "denegado", principal)
+
+
+def public_portal_origin(value):
+    """Origen del portal configurado por despliegue, o None si no sirve en otro dispositivo."""
+    value = (value or "").strip().rstrip("/")
+    try:
+        url = urlsplit(value)
+        host = url.hostname
+        url.port  # Un puerto inválido lanza ValueError.
+    except ValueError:
+        return None
+    if url.scheme not in {"http", "https"} or not host or url.username or url.password or url.path or url.query or url.fragment:
+        return None
+    if host == "localhost" or host.endswith(".localhost"):
+        return None
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return value
+    return None if address.is_loopback or address.is_unspecified else value
+
+
 def install(app, models, sessions, get_db, get_principal, require_admin, events_url, instance):
     coordinator = Coordinator(models, sessions, events_url, instance)
+    portal_origin = public_portal_origin(os.getenv("PUBLIC_PORTAL_URL"))
+    audit = SecurityAudit(models, sessions, instance)
+    coordinator.audit = audit
 
     @app.get("/checkout/capacidades")
     def capabilities():
         return {"pedidos": True, "pago_simulado": True, "qr": True,
-                "max_por_item": 100, "max_por_pedido": 200}
+                "max_por_item": 100, "max_por_pedido": 200, "portal_publico": portal_origin}
 
     @app.post("/ordenes", status_code=201)
     def create(data: OrderRequest, idempotency_key: str = Header(alias="Idempotency-Key"),
@@ -633,7 +732,9 @@ def install(app, models, sessions, get_db, get_principal, require_admin, events_
 
     @app.post("/ordenes/recuperar")
     def recover(_admin=Depends(require_admin)):
-        return coordinator.recover()
+        result = coordinator.recover()
+        audit.record("recuperar_pedidos", "ordenes", "ejecutado", _admin)
+        return result
 
     @app.post("/eventos/{event_id}/cancelar", status_code=202)
     def cancel_event(event_id: int, motivo: str = Query(default="Cancelación administrativa", min_length=3, max_length=300), db=Depends(get_db),
@@ -651,7 +752,9 @@ def install(app, models, sessions, get_db, get_principal, require_admin, events_
                 raise HTTPException(404, "Evento no encontrado")
             except RemoteUnavailable:
                 raise HTTPException(503, "No se pudo verificar el evento; intente nuevamente")
-        return coordinator.cancel_event(db, event_id, principal, motivo.strip())
+        result = coordinator.cancel_event(db, event_id, principal, motivo.strip())
+        audit.record("cancelar_evento", f"evento:{event_id}", "solicitado", principal)
+        return result
 
     def page(query, limit, offset, serialize):
         return {"items": [serialize(row) for row in query.offset(offset).limit(limit).all()],
@@ -702,6 +805,7 @@ def install(app, models, sessions, get_db, get_principal, require_admin, events_
         return page(query, limit, offset, lambda ticket: {
             "referencia": f"{ticket.compra_id}:{ticket.item}:{ticket.numero}", "orden_id": ticket.orden_id,
             "compra_id": ticket.compra_id, "evento_id": ticket.evento_id, "asiento": ticket.asiento,
+            **coordinator.ticket_location(db, ticket),
             "estado": ticket.estado, "usado_en": ticket.usado_en.isoformat() if ticket.usado_en else None})
 
     @app.get("/admin/reembolsos")
@@ -749,7 +853,10 @@ def install(app, models, sessions, get_db, get_principal, require_admin, events_
 
     @app.post("/ordenes/{order_id}/cancelar")
     def cancel(order_id: str, db=Depends(get_db), principal=Depends(get_principal)):
-        return coordinator.cancel(db, order_id, principal)
+        result = coordinator.cancel(db, order_id, principal)
+        if principal.role == "administrador":
+            audit.record("cancelar_o_reembolsar_pedido", f"pedido:{order_id[:32]}", "ejecutado", principal, order_id[:32])
+        return result
 
     @app.get("/entradas/mias")
     def tickets(db=Depends(get_db), principal=Depends(get_principal)):
@@ -758,15 +865,27 @@ def install(app, models, sessions, get_db, get_principal, require_admin, events_
         result = []
         for ticket in db.query(models.Entrada).join(models.Orden).filter(models.Orden.auth_subject == principal.subject).limit(500):
             output = io.BytesIO()
-            qrcode.make(ticket.id, image_factory=qrcode.image.svg.SvgPathImage).save(output)
-            result.append({"qr": ticket.id, "qr_svg": output.getvalue().decode(), "orden_id": ticket.orden_id,
+            # La credencial viaja en el fragmento: el navegador no lo envía al servidor ni en Referer.
+            link = f"{portal_origin}/#entrada/{ticket.id}" if portal_origin else None
+            qrcode.make(link or ticket.id, image_factory=qrcode.image.svg.SvgPathImage).save(output)
+            result.append({"qr": ticket.id, "qr_svg": output.getvalue().decode(), "qr_url": link, "orden_id": ticket.orden_id,
+                "referencia": f"{ticket.orden_id[:8].upper()}-{ticket.item + 1}-{ticket.numero + 1}",
                 "evento_id": ticket.evento_id, "asiento": ticket.asiento, "estado": ticket.estado,
+                **coordinator.ticket_location(db, ticket),
                 "usado_en": ticket.usado_en.isoformat() if ticket.usado_en else None})
         return result
 
     @app.post("/entradas/validar")
     def validate(data: ValidateRequest, db=Depends(get_db), principal=Depends(get_principal),
                  authorization: str | None = Header(default=None)):
+        try:
+            return validate_access(data, db, principal, authorization)
+        except HTTPException as error:
+            if error.status_code < 500:
+                audit.record("validar_entrada", f"evento:{data.evento_id}", "rechazado", principal, reason=str(error.detail)[:120])
+            raise
+
+    def validate_access(data, db, principal, authorization):
         if principal.role not in {"administrador", "organizador"}:
             raise HTTPException(403, "Se requiere control de acceso")
         if db.get(models.CancelacionEvento, data.evento_id):
@@ -775,26 +894,39 @@ def install(app, models, sessions, get_db, get_principal, require_admin, events_
             event = coordinator.events.call("GET", f"/eventos/{data.evento_id}")
             if event.get("id") != data.evento_id or event.get("cancelado_en") or event.get("activo") is not True:
                 raise HTTPException(409, "Evento cerrado o cancelado")
-        except (RemoteRejected, RemoteUnavailable):
+        except RemoteRejected as rejected:
+            if rejected.status_code == 404:
+                raise HTTPException(404, "Evento no válido")
+            raise HTTPException(503, "No se pudo verificar que el evento admite acceso")
+        except RemoteUnavailable:
             raise HTTPException(503, "No se pudo verificar que el evento admite acceso")
         if principal.role == "organizador":
             try:
                 answer = coordinator.events.call("GET", f"/eventos/{data.evento_id}/autorizar-acceso", headers={"Authorization": authorization})
                 if answer.get("autorizado") is not True:
                     raise HTTPException(403, "No administras este evento")
-            except (RemoteRejected, RemoteUnavailable):
+            except RemoteForbidden:
+                raise HTTPException(403, "No administras este evento")
+            except RemoteRejected:
                 raise HTTPException(403, "No se pudo autorizar el acceso al evento")
+            except RemoteUnavailable:
+                raise HTTPException(503, "No se pudo confirmar la autorización sobre el evento")
         ticket = db.get(models.Entrada, data.qr)
         if not ticket or ticket.evento_id != data.evento_id:
             raise HTTPException(404, "Entrada no encontrada para este evento")
         order = coordinator.lock(db, ticket.orden_id)
         db.refresh(ticket)
+        if ticket.estado == "usada":
+            raise HTTPException(409, "Entrada ya utilizada")
         if order.estado != "completada" or ticket.estado != "emitida":
-            raise HTTPException(409, "Entrada utilizada o anulada")
+            raise HTTPException(409, "Entrada anulada o no habilitada para el ingreso")
+        location = coordinator.ticket_location(db, ticket)
         ticket.estado, ticket.usado_en, ticket.usado_por = "usada", now(), principal.subject
         db.add(models.Outbox(orden_id=order.id, tipo="acceso_validado", dedupe=f"acceso:{ticket.id}", datos={"evento_id": ticket.evento_id}))
+        db.add(audit.entry("validar_entrada", f"entrada:{ticket.compra_id}:{ticket.item}:{ticket.numero}", "permitido", principal, order.id))
         db.commit()
-        return {"acceso": "permitido", "evento_id": ticket.evento_id, "asiento": ticket.asiento}
+        return {"acceso": "permitido", "evento_id": ticket.evento_id, "evento_nombre": event.get("nombre"),
+                "asiento": ticket.asiento, "zona": location.get("zona")}
 
     @app.get("/notificaciones")
     def notifications(db=Depends(get_db), principal=Depends(get_principal)):

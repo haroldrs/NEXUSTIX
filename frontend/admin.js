@@ -15,6 +15,7 @@ const ADMIN_PAGES = new Map();
 const ADMIN_PAGE_REQUESTS = new Map();
 const ADMIN_REFRESHES = new Set();
 let ADMIN_CLUSTER = null;
+let ADMIN_DEPLOYMENT_OBSERVATION = null;
 let ADMIN_CLUSTER_SELECTED = null;
 let ADMIN_CLUSTER_TIMER = null;
 let ADMIN_CLUSTER_CONTROLLER = null;
@@ -62,14 +63,15 @@ async function adminBusy(button, operation) {
 
 function clearAdminWorkspace() {
   stopClusterPolling();
+  clearInsights();
   ADMIN_GENERATION += 1;
-  ADMIN_CLUSTER = null; ADMIN_CLUSTER_SELECTED = null; ADMIN_CLUSTER_STALE = true; ADMIN_CLUSTER_BASE = null; ADMIN_CLUSTER_EVENTS.clear(); ADMIN_CLUSTER_CANDIDATES.clear(); ADMIN_CLUSTER_LAST_NODES.clear();
+  ADMIN_CLUSTER = null; ADMIN_DEPLOYMENT_OBSERVATION = null; ADMIN_CLUSTER_SELECTED = null; ADMIN_CLUSTER_STALE = true; ADMIN_CLUSTER_BASE = null; ADMIN_CLUSTER_EVENTS.clear(); ADMIN_CLUSTER_CANDIDATES.clear(); ADMIN_CLUSTER_LAST_NODES.clear();
   ADMIN_EVENTS = []; ADMIN_SCENARIOS = []; ADMIN_SNAPSHOT = null; ADMIN_REPORT = null;
   ADMIN_INITIAL_CAPTURES.clear(); ADMIN_PAGES.clear(); ADMIN_REFRESHES.clear();
   ADMIN_PAGE_REQUESTS.clear(); ADMIN_SNAPSHOT_REQUEST++;
   document.querySelectorAll("#view-admin [data-admin-panel]").forEach(panel => { panel.hidden = panel.dataset.adminPanel !== "summary"; });
-  ["admin-events", "admin-sales", "admin-users", "admin-summary", "admin-orders", "admin-tickets", "admin-refunds", "admin-cancellations", "service-grid", "infrastructure-map", "database-cards", "replica-metrics", "audit-result", "pending-status", "journal-list", "trace-result", "lab-status", "lab-evidence", "lab-scenario-detail", "incident-list", "evidence-list", "distributed-health", "admin-limitations", "evidence-report", "node-infrastructure", "node-database-assignments", "cluster-summary", "cluster-nodes", "cluster-node-detail", "cluster-topology", "cluster-coordination", "cluster-access", "cluster-discovery", "cluster-history", "cluster-limitations"].forEach(id => {
-    if (adminNode(id)) adminNode(id).textContent = "Información restringida a administradores.";
+  ["admin-events", "admin-sales", "admin-users", "admin-summary", "admin-orders", "admin-tickets", "admin-refunds", "admin-cancellations", "service-grid", "infrastructure-map", "database-cards", "replica-metrics", "audit-result", "pending-status", "journal-list", "trace-result", "lab-status", "lab-evidence", "lab-scenario-detail", "incident-list", "evidence-list", "distributed-health", "admin-limitations", "evidence-report", "node-infrastructure", "node-database-assignments", "cluster-deployment-identity", "cluster-summary", "cluster-nodes", "cluster-node-detail", "cluster-topology", "cluster-coordination", "cluster-access", "cluster-discovery", "cluster-history", "cluster-limitations"].forEach(id => {
+    if (adminNode(id)) adminNode(id).textContent = "Sin consultar.";
   });
   ["event-result", "access-result", "role-result", "lab-report-status", "evidence-import-status", "admin-global-notice", "incident-scope", "service-check-time", "last-refresh", "cluster-announcement-status"].forEach(id => { if (adminNode(id)) adminNode(id).textContent = ""; });
   ["event-editor", "access-form", "role-form", "trace-form", "lab-report-form", "evidence-import-form", "cluster-announcement-form"].forEach(id => adminNode(id)?.reset());
@@ -96,7 +98,7 @@ function openAdminSection(section = "summary") {
   });
   document.querySelectorAll("[data-admin-panel]").forEach(panel => { panel.hidden = panel.dataset.adminPanel !== section; });
   adminNode("admin-session-note").textContent = "Sesión administradora · acceso verificado por cada servicio";
-  const loaders = {summary: loadAdminSummary, events: loadAdminEvents, sales: loadAdminSales, refunds: loadAdminRefunds, users: loadAdminUsers, cluster: refreshAdminCluster, services: refreshAdminSnapshot, databases: refreshAdminSnapshot, observability: refreshObservability, lab: refreshLab, incidents: loadAdminIncidents, evidence: loadAdminEvidence};
+  const loaders = {summary: loadAdminSummary, events: loadAdminEvents, sales: loadAdminSales, refunds: loadAdminRefunds, users: loadAdminUsers, cluster: refreshAdminCluster, services: refreshAdminSnapshot, databases: refreshAdminSnapshot, consistency: refreshAdminSnapshot, security: loadSecurityPanel, academic: loadAcademicPanel, observability: refreshObservability, lab: refreshLab, incidents: loadAdminIncidents, evidence: loadAdminEvidence};
   loaders[section]?.();
 }
 
@@ -145,9 +147,96 @@ async function loadAdminEvents() {
   target.querySelectorAll("[data-delete-event]").forEach(button => button.addEventListener("click", () => adminBusy(button, () => deleteAdminEvent(Number(button.dataset.deleteEvent)))));
 }
 
+function layoutRowName(index) {
+  let label = "";
+  for (let value = index + 1; value > 0; value = Math.floor((value - 1) / 26)) label = String.fromCharCode(65 + (value - 1) % 26) + label;
+  return label;
+}
+
+function addLayoutZone(zone = {}, refresh = true) {
+  const target = adminNode("layout-zones");
+  if (target.children.length >= 100) return;
+  const row = document.createElement("div"); row.className = "layout-zone-editor";
+  const color = /^#[0-9a-f]{6}$/i.test(zone.color || "") ? zone.color : ["#537c68", "#aa7540", "#647bad", "#9b648e"][target.children.length % 4];
+  row.innerHTML = `<label>Zona<input data-layout-field="nombre" maxlength="80" value="${adminText(zone.nombre || "")}" placeholder="VIP, Preferencial…"></label><label>Precio S/<input data-layout-field="precio" type="number" min="0" max="10000" step="0.01" value="${Number(zone.precio_centimos || 0) / 100}"></label><label class="zone-capacity-control">Capacidad<input data-layout-field="capacidad" type="number" min="1" max="10000" value="${Number(zone.capacidad || 100)}"></label><label class="zone-rows-control">Filas asignadas<input data-layout-field="filas" maxlength="1700" value="${adminText((zone.filas || []).join(","))}" placeholder="A,B,C"></label><label>Color<input data-layout-field="color" type="color" value="${color}"></label><button type="button" class="text-button" aria-label="Quitar zona">Quitar</button>`;
+  row.querySelector("button").onclick = () => { row.remove(); refreshLayoutDesigner(); };
+  target.appendChild(row);
+  if (refresh) refreshLayoutDesigner();
+}
+
+function readAdminLayout() {
+  const tipo = adminNode("layout-type").value;
+  if (tipo === "general") return {tipo};
+  const split = value => String(value).split(",").map(part => part.trim()).filter(Boolean);
+  const count = Number(adminNode("layout-rows").value), columns = Number(adminNode("layout-columns").value), start = Number(adminNode("layout-start").value);
+  let rows = split(adminNode("layout-row-labels").value);
+  if (tipo === "asientos") {
+    if (!Number.isInteger(count) || count < 1 || count > 100 || !Number.isInteger(columns) || columns < 1 || columns > 100 || !Number.isInteger(start) || start < 1 || start > 9999) throw new Error("Usa entre 1 y 100 filas y columnas, y un primer número entre 1 y 9999.");
+    if (!rows.length) rows = Array.from({length: count}, (_, i) => layoutRowName(i));
+    if (rows.length !== count || new Set(rows).size !== count || rows.some(row => !/^[A-Za-z][A-Za-z_-]{0,15}$/.test(row))) throw new Error("Indica una etiqueta única por fila, con letras o guiones (hasta 16 caracteres).");
+  }
+  const editors = [...adminNode("layout-zones").children];
+  const zones = editors.map(row => {
+    const value = key => row.querySelector(`[data-layout-field="${key}"]`).value;
+    const zone = {nombre: value("nombre").trim(), precio_centimos: Math.round(Number(value("precio")) * 100), color: value("color")};
+    if (!zone.nombre || value("precio") === "" || !Number.isInteger(zone.precio_centimos) || zone.precio_centimos < 0 || zone.precio_centimos > 1000000) throw new Error("Cada zona requiere nombre y precio entre S/ 0 y S/ 10000.");
+    if (tipo === "zonas") {
+      zone.capacidad = Number(value("capacidad"));
+      if (!Number.isInteger(zone.capacidad) || zone.capacidad < 1 || zone.capacidad > 10000) throw new Error("La capacidad de cada zona debe ser un entero entre 1 y 10000.");
+    } else zone.filas = split(value("filas")).length ? split(value("filas")) : editors.length === 1 ? rows : [];
+    return zone;
+  });
+  if (!zones.length || new Set(zones.map(zone => zone.nombre.toLowerCase())).size !== zones.length) throw new Error("Añade zonas con nombres únicos.");
+  if (tipo === "zonas") {
+    if (zones.reduce((sum, zone) => sum + zone.capacidad, 0) > 10000) throw new Error("Máximo 10000 entradas por distribución de zonas.");
+    return {tipo, zonas: zones};
+  }
+  const assigned = zones.flatMap(zone => zone.filas);
+  if (zones.some(zone => !zone.filas.length) || assigned.length !== rows.length || new Set(assigned).size !== rows.length || assigned.some(row => !rows.includes(row))) throw new Error("Asigna todas las filas a una sola zona cada una.");
+  const aisles = split(adminNode("layout-aisles").value).map(Number);
+  if (new Set(aisles).size !== aisles.length || aisles.some(value => !Number.isInteger(value) || value < 1 || value >= columns)) throw new Error("Cada pasillo debe ir después de una columna y antes de la última.");
+  return {tipo, filas: rows, columnas: columns, inicio: start, pasillos: aisles, zonas: zones};
+}
+
+function renderLayoutPreview(layout) {
+  const target = adminNode("layout-preview");
+  if (!layout) { target.textContent = "La distribución anterior se conserva. Sus asientos y operaciones no se regeneran."; return; }
+  if (layout.tipo === "general") { target.textContent = "Admisión general: cantidad de entradas, sin butacas ni sectores."; return; }
+  const zones = layout.zonas || [];
+  const color = zone => /^#[0-9a-f]{6}$/i.test(zone?.color || "") ? zone.color : "#537c68";
+  if (layout.tipo === "zonas") {
+    target.innerHTML = `<h4>Vista previa · ${zones.reduce((sum, zone) => sum + zone.capacidad, 0)} entradas</h4><div class="layout-stage">ESCENARIO</div><div class="layout-zone-preview">${zones.map(zone => `<div style="border-top-color:${color(zone)}"><strong>${adminText(zone.nombre)}</strong><span>${zone.capacidad} entradas · ${adminMoney(zone.precio_centimos)}</span></div>`).join("")}</div>`;
+    return;
+  }
+  if (!layout.filas?.length) { target.textContent = "Asientos numerados existentes: distribución conservada sin modificar códigos."; return; }
+  target.innerHTML = `<h4>Vista previa · ${layout.filas.length * layout.columnas} butacas</h4><div class="layout-stage">ESCENARIO / PANTALLA</div><p>${zones.map(zone => `${adminText(zone.nombre)}: ${adminMoney(zone.precio_centimos)}`).join(" · ")}</p><div class="layout-preview-scroll" tabindex="0" role="region" aria-label="Vista previa del recinto">${layout.filas.map(row => {
+    const zone = zones.find(zone => zone.filas.includes(row));
+    return `<div class="layout-preview-row"><strong>${adminText(row)}</strong>${Array.from({length: layout.columnas}, (_, index) => `<span class="layout-preview-seat" style="border-color:${color(zone)}" title="${adminText(zone?.nombre || "")}">${adminText(row)}${layout.inicio + index}</span>${layout.pasillos.includes(index + 1) ? '<i class="layout-preview-aisle" aria-hidden="true"></i>' : ""}`).join("")}</div>`;
+  }).join("")}</div>`;
+}
+
+function refreshLayoutDesigner() {
+  const form = adminNode("event-editor"), editing = Boolean(form.elements.evento_id.value), type = adminNode("layout-type").value;
+  adminNode("layout-designer").disabled = editing;
+  adminNode("layout-seat-settings").hidden = type !== "asientos";
+  adminNode("layout-zone-settings").hidden = type === "general";
+  adminNode("layout-seat-settings").querySelectorAll("input").forEach(input => { input.disabled = editing || type !== "asientos"; });
+  adminNode("layout-zones").querySelectorAll("input").forEach(input => { input.disabled = editing || type === "general" || (input.dataset.layoutField === "filas" && type !== "asientos") || (input.dataset.layoutField === "capacidad" && type !== "zonas"); });
+  adminNode("layout-zones").querySelectorAll(".zone-capacity-control").forEach(label => { label.hidden = type !== "zonas"; });
+  adminNode("layout-zones").querySelectorAll(".zone-rows-control").forEach(label => { label.hidden = type !== "asientos"; });
+  form.elements.capacidad.readOnly = type !== "general";
+  if (editing) { renderLayoutPreview(ADMIN_EVENTS.find(event => Number(event.id) === Number(form.elements.evento_id.value))?.distribucion); return; }
+  try {
+    const layout = readAdminLayout();
+    if (type !== "general") form.elements.capacidad.value = type === "zonas" ? layout.zonas.reduce((sum, zone) => sum + zone.capacidad, 0) : layout.filas.length * layout.columnas;
+    renderLayoutPreview(layout);
+  } catch (error) { adminNode("layout-preview").textContent = error.message; }
+}
+
 function resetEventEditor() {
   const form = adminNode("event-editor"); form.reset(); form.elements.evento_id.value = "";
-  form.elements.capacidad.disabled = false; form.elements.asientos.disabled = false;
+  form.elements.capacidad.disabled = false;
+  adminNode("layout-zones").replaceChildren(); addLayoutZone({nombre: "General"}, false); refreshLayoutDesigner();
   adminNode("event-editor-title").textContent = "Crear evento";
 }
 function editAdminEvent(id) {
@@ -160,7 +249,17 @@ function editAdminEvent(id) {
     const date = new Date(item.fecha);
     if (Number.isFinite(date.getTime())) form.elements.fecha.value = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   }
-  form.elements.capacidad.disabled = true; form.elements.asientos.disabled = true;
+  form.elements.capacidad.disabled = true;
+  const layout = item.distribucion;
+  adminNode("layout-type").value = layout?.tipo || "general";
+  adminNode("layout-zones").replaceChildren();
+  (layout?.zonas || []).forEach(zone => addLayoutZone(zone, false));
+  if (layout?.filas) {
+    adminNode("layout-rows").value = layout.filas.length; adminNode("layout-row-labels").value = layout.filas.join(",");
+    adminNode("layout-columns").value = layout.columnas; adminNode("layout-start").value = layout.inicio;
+    adminNode("layout-aisles").value = (layout.pasillos || []).join(",");
+  }
+  refreshLayoutDesigner();
   adminNode("event-editor-title").textContent = `Editar evento #${id}`;
   form.scrollIntoView({behavior: "smooth", block: "center"}); form.elements.nombre.focus({preventScroll: true});
 }
@@ -177,12 +276,9 @@ async function submitAdminEvent(event) {
       if (!original) { adminNotice("event-result", "Actualiza el catálogo y selecciona de nuevo el evento.", "warning"); return; }
       payload.activo = original.activo;
     } else {
-      payload.capacidad = Number(data.get("capacidad"));
-      payload.asientos = String(data.get("asientos") || "").trim().split("\n").filter(Boolean).map(line => {
-        const [codigo, zona, precio, ...extra] = line.split(",").map(value => value.trim());
-        return {codigo, zona, precio_centimos: extra.length || !precio ? NaN : Math.round(Number(precio) * 100)};
-      });
-      if (payload.asientos.some(seat => !seat.codigo || !seat.zona || !Number.isInteger(seat.precio_centimos) || seat.precio_centimos < 0)) { adminNotice("event-result", "Revisa los asientos: código,zona,precio. Cada fila debe contener tres valores válidos.", "error"); return; }
+      try { payload.distribucion = readAdminLayout(); }
+      catch (error) { adminNotice("event-result", error.message, "error"); return; }
+      payload.capacidad = payload.distribucion.tipo === "zonas" ? payload.distribucion.zonas.reduce((sum, zone) => sum + zone.capacidad, 0) : payload.distribucion.tipo === "asientos" ? payload.distribucion.filas.length * payload.distribucion.columnas : Number(data.get("capacidad"));
     }
     const result = await adminRequest(`${CONFIG.EVENTOS_URL}/eventos${id ? `/${id}` : ""}`, {method: id ? "PUT" : "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
     if (result.stale) return;
@@ -218,7 +314,7 @@ async function loadAdminSales() {
   await Promise.all([
     adminPaged("admin-sales", `/admin/ventas${query}`, [["Compra", "id"], ["Evento", "evento_id"], ["Cantidad", "cantidad"], ["Estado", "estado"], ["Instancia", "instancia"], ["Pedido", "orden_id"], ["Fecha", row => adminDate(row.creado_en)]], "No hay compras para este filtro."),
     adminPaged("admin-orders", `/admin/ordenes${query}`, [["Pedido", "id"], ["Estado", "estado"], ["Pago simulado", "pago"], ["Total", row => adminMoney(row.total_centimos)], ["Reembolsado", row => adminMoney(row.reembolsado_centimos)], ["Fecha", row => adminDate(row.creado_en)]], "No hay pedidos para este filtro."),
-    adminPaged("admin-tickets", `/admin/entradas${query}`, [["Pedido", "orden_id"], ["Compra", "compra_id"], ["Evento", "evento_id"], ["Asiento", row => row.asiento || "General"], ["Estado", "estado"], ["Uso", row => adminDate(row.usado_en)]], "No hay entradas para este filtro."),
+    adminPaged("admin-tickets", `/admin/entradas${query}`, [["Pedido", "orden_id"], ["Compra", "compra_id"], ["Evento", "evento_id"], ["Ubicación", row => row.zona ? `Zona: ${row.zona}` : row.asiento || "General"], ["Estado", "estado"], ["Uso", row => adminDate(row.usado_en)]], "No hay entradas para este filtro."),
   ]);
 }
 async function loadAdminRefunds() {
@@ -282,6 +378,8 @@ async function refreshAdminCluster() {
   const valid = () => !controller.signal.aborted && request === ADMIN_CLUSTER_REQUEST && identity === adminIdentity() && clusterVisible();
   const sources = [...new Set([CONFIG.COMPRAS_LB_URL, CONFIG.USUARIOS_URL, CONFIG.EVENTOS_URL].filter(Boolean))];
   let result = {ok: false}, renewed = false, successfulBase = null;
+  ADMIN_DEPLOYMENT_OBSERVATION = null;
+  renderDeploymentIdentity();
   adminNode("cluster-observation").textContent = ADMIN_CLUSTER ? `Consultando… Última captura recibida: ${adminDate(ADMIN_CLUSTER.capturado_en)}.` : "Consultando los observadores configurados…";
   try {
     for (const base of sources) {
@@ -306,6 +404,13 @@ async function refreshAdminCluster() {
       result.ok = false;
     }
     if (!valid()) return;
+    const identityBase = successfulBase || sources[0]?.replace(/\/$/, "");
+    if (identityBase && ![401, 403].includes(result.status)) {
+      const instance = await clusterFetch(`${identityBase}/diagnostico/instancia`, ACCESS_TOKEN, controller.signal);
+      if (!valid()) return;
+      if (instance.ok && instance.data && typeof instance.data.instancia === "string") ADMIN_DEPLOYMENT_OBSERVATION = instance.data;
+    }
+    renderDeploymentIdentity();
     if (!result.ok || !result.data?.cluster) {
       ADMIN_CLUSTER_STALE = true;
       adminNode("cluster-notice").hidden = false;
@@ -351,7 +456,7 @@ async function refreshAdminCluster() {
     adminNode("cluster-observation").textContent = `Captura sin datos interpretables. Última observación válida: ${adminDate(previousCapture?.capturado_en)}.`;
     if (previousCapture) renderAdminCluster();
   } finally {
-    if (ADMIN_CLUSTER_CONTROLLER === controller) { ADMIN_CLUSTER_CONTROLLER = null; scheduleClusterPoll(); }
+    if (ADMIN_CLUSTER_CONTROLLER === controller) { ADMIN_CLUSTER_CONTROLLER = null; scheduleClusterPoll(); insightsAfterCluster(); }
   }
 }
 function clusterStateLabel(value) {
@@ -371,6 +476,22 @@ function clusterSafeLink(value, label = value) {
     if (["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password) return `<a href="${adminText(parsed.href)}" target="_blank" rel="noopener noreferrer">${adminText(label)}</a>`;
   } catch (_) { /* Se muestran direcciones no utilizables como texto. */ }
   return adminText(label || "Sin dirección configurada");
+}
+function renderDeploymentIdentity() {
+  if (!adminAllowed()) return;
+  const observed = ADMIN_DEPLOYMENT_OBSERVATION || {};
+  const value = item => item === null || item === undefined || item === "" ? "No declarado" : item;
+  const profile = item => ({local: "Local", distribuido: "Distribuido", alta_disponibilidad: "Alta disponibilidad preparada"})[item] || value(item);
+  const count = item => Number.isInteger(item) && item > 0 ? item : "No declarado";
+  const rows = [
+    {dato: "Perfil", configurado: profile(CONFIG.DEPLOYMENT_PROFILE), observado: profile(observed.deployment_profile)},
+    {dato: "Instalación", configurado: value(CONFIG.INSTALLATION_ID), observado: value(observed.installation_id)},
+    {dato: "Despliegue", configurado: value(CONFIG.DEPLOYMENT_ID), observado: value(observed.deployment_id)},
+    {dato: "Release / versión", configurado: value(CONFIG.RELEASE), observado: value(observed.release)},
+    {dato: "Nodos declarados", configurado: count(CONFIG.NODE_COUNT), observado: count(observed.node_count)},
+    {dato: "Nodo / instancia", configurado: "No declarado", observado: `${value(observed.node_id)} / ${value(observed.instancia)}`},
+  ];
+  adminNode("cluster-deployment-identity").innerHTML = `<div class="table-scroll">${adminTable(rows, [["Dato", "dato"], ["Configurado en el portal", "configurado"], ["Observado en el servicio", "observado"]])}</div><p class="field-help">Portal público configurado: ${CONFIG.PUBLIC_PORTAL_URL ? clusterSafeLink(CONFIG.PUBLIC_PORTAL_URL) : "No declarado"}.</p><p class="field-help">${ADMIN_DEPLOYMENT_OBSERVATION ? `Consulta de identidad: ${adminText(adminDate(observed.comprobado_en))} · Servicio: ${adminText(value(observed.servicio))}.` : "Identidad del servicio desconocida: sin una respuesta de diagnóstico en esta consulta."} Los valores observados son metadatos declarados por la instancia que respondió. La cantidad de nodos es declarada; no acredita disponibilidad ni identidad física.</p>`;
 }
 function clusterAdmission(node) {
   const admission = node.admision || {};
@@ -525,9 +646,10 @@ async function refreshAdminSnapshot() {
     adminNode("last-refresh").textContent = "Última consulta fallida; las métricas no están disponibles.";
     adminNode("distributed-health").textContent = "Sin respuesta actual del diagnóstico.";
     adminNode("lab-evidence").textContent = "Sin respuesta actual del diagnóstico.";
+    renderInsightsFromSnapshot();
     return null;
   }
-  ADMIN_SNAPSHOT = result.data;
+  ADMIN_SNAPSHOT = pruneUndeployed(result.data);
   const snapshot = result.data, components = adminList(snapshot.componentes);
   renderNodeInfrastructure(snapshot.infraestructura);
   adminNode("service-grid").innerHTML = renderAdminComponents(components);
@@ -540,6 +662,7 @@ async function refreshAdminSnapshot() {
   adminNode("lab-evidence").textContent = JSON.stringify(snapshot, null, 2);
   renderAdminDatabases(snapshot.persistencia);
   renderAdminMetrics(snapshot.metricas);
+  renderInsightsFromSnapshot();
   const pending = snapshot.pendientes;
   adminNotice("pending-status", pending?.disponible ? `Pedidos: ${JSON.stringify(pending.ordenes || {})} · Outbox pendiente: ${pending.outbox_pendiente} · Reembolsos: ${JSON.stringify(pending.reembolsos || {})}` : "No se pudieron consultar las operaciones pendientes.", pending?.disponible ? "" : "warning");
   return snapshot;
@@ -560,7 +683,7 @@ function renderAdminMetrics(metrics) {
     return `<article class="metric-card"><strong>${adminText(row.componente || row.instancia || "Instancia")}</strong>${adminFacts([["Solicitudes", metric.solicitudes ?? metric.peticiones_totales ?? metric.solicitudes_totales], ["Exitosas", metric.peticiones_exitosas ?? metric.exitosas], ["Errores HTTP", metric.errores_http], ["Latencia media", latency === undefined ? undefined : `${latency} ms`], ["Reintentos", metric.reintentos ?? "Sin contador registrado"], ["Desde", adminDate(metric.desde)]])}${row.error ? `<small>${adminText(row.error)}</small>` : ""}<details><summary>Métricas disponibles</summary><pre>${adminText(JSON.stringify(metric, null, 2))}</pre></details></article>`;
   }).join("") || adminEmpty("El servidor no recibió métricas de instancias configuradas.");
 }
-async function refreshObservability() { await refreshAdminSnapshot(); }
+async function refreshObservability() { await Promise.all([refreshAdminSnapshot(), loadInsightOutbox(), loadInsightInventory(), loadInsightRecovery()]); }
 async function loadAudit() {
   adminNotice("audit-result", "Consultando consistencia…");
   const result = await adminRequest(`${CONFIG.COMPRAS_LB_URL}/auditoria/consistencia`, {}, 15000);
@@ -587,7 +710,7 @@ async function submitAdminTrace(event) {
     if (result.stale) return;
     if (!result.ok) { adminNode("trace-result").textContent = adminError(result); return; }
     const trace = result.data;
-    adminNode("trace-result").innerHTML = `<p>Operación ${adminText(trace.identificador)} · ${adminState(trace.estado)}</p>` + adminList(trace.eventos).map(entry => `<article class="admin-timeline-entry"><time>${adminText(adminDate(entry.momento))}</time><h3>${adminText(entry.etapa)}</h3><p>${adminText(entry.detalle || entry.estado)}</p><small>${adminText(entry.fuente)} · Instancia ${adminText(entry.instancia || "No registrada")}</small></article>`).join("") + `<p class="notice">Hitos sin evidencia: ${adminText(adminList(trace.faltantes).join(" · ") || "Ninguno informado")}.</p><p class="field-help">${adminText(adminList(trace.limitaciones).join(" · "))}</p>`;
+    await renderInsightTrace(trace);
   });
 }
 
@@ -598,7 +721,7 @@ async function refreshLab() {
   if (!result.ok) { adminNode("lab-scenario-detail").textContent = adminError(result); return; }
   ADMIN_SCENARIOS = adminList(result.data?.escenarios);
   const selected = adminNode("lab-scenario").value;
-  adminNode("lab-scenario").innerHTML = ADMIN_SCENARIOS.map(scenario => `<option value="${adminText(scenario.id)}">${adminText(scenario.id)} · ${adminText(scenario.nombre)}</option>`).join("");
+  adminNode("lab-scenario").innerHTML = labOptionsHtml(ADMIN_SCENARIOS);
   if (ADMIN_SCENARIOS.some(scenario => scenario.id === selected)) adminNode("lab-scenario").value = selected;
   renderLabScenario();
 }
@@ -607,6 +730,7 @@ function renderLabScenario() {
   if (!scenario) { adminNode("lab-scenario-detail").textContent = "No se recibió información del escenario."; return; }
   const value = input => Array.isArray(input) ? input.join(" · ") : input;
   adminNode("lab-scenario-detail").innerHTML = `<p class="eyebrow">ESCENARIO ${adminText(scenario.id)}</p><h3>${adminText(scenario.nombre)}</h3><p>${adminText(scenario.objetivo)}</p><div class="scenario-concepts">${adminList(scenario.conceptos).map(concept => `<span>${adminText(concept)}</span>`).join("")}</div>${adminFacts([["Componentes", value(scenario.componentes)], ["Requisitos", value(scenario.requisitos)], ["Acción manual", value(scenario.accion)], ["Resultado esperado", value(scenario.esperado)], ["Limitaciones", value(scenario.limitaciones)]])}`;
+  adminNode("lab-scenario-detail").insertAdjacentHTML("beforeend", labScenarioExtras(scenario));
   const initial = ADMIN_INITIAL_CAPTURES.get(selected);
   adminNode("lab-initial-status").textContent = initial ? `Captura inicial: ${adminDate(initial.fecha)} · ${initial.id}` : "Sin captura inicial para este escenario en esta sesión.";
 }
@@ -625,13 +749,13 @@ async function submitLabReport(event) {
     const scenario = adminNode("lab-scenario").value, initial = ADMIN_INITIAL_CAPTURES.get(scenario);
     if (!initial) { adminNotice("lab-report-status", "Captura primero el estado inicial de este escenario.", "warning"); return; }
     const data = new FormData(form);
-    const result = await adminRequest(`${ADMIN_API()}/evidencias`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({escenario: scenario, fase: "final", referencia_inicial: initial.id, acciones: String(data.get("acciones")), observado: String(data.get("observado")), conclusion: String(data.get("conclusion"))})}, 45000);
+    const result = await adminRequest(`${ADMIN_API()}/evidencias`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({escenario: scenario, fase: "final", referencia_inicial: initial.id, acciones: String(data.get("acciones")), observado: String(data.get("observado")), conclusion: String(data.get("conclusion")), ...labFinalFields(scenario, data)})}, 45000);
     if (result.stale) return;
     if (!result.ok) { adminNotice("lab-report-status", adminError(result), "error"); return; }
     ADMIN_REPORT = result.data;
     adminNode("lab-evidence").textContent = JSON.stringify(result.data.evidencias, null, 2);
     adminNotice("lab-report-status", `Reporte ${result.data.id} guardado. Disponible en Evidencias de demostración. El tiempo entre capturas es una ventana de observación, no un RTO certificado.`, "success");
-    ADMIN_INITIAL_CAPTURES.delete(scenario); renderLabScenario();
+    ADMIN_INITIAL_CAPTURES.delete(scenario); LAB_FAILURE_CAPTURES.delete(scenario); renderLabScenario();
   });
 }
 
@@ -640,7 +764,7 @@ async function loadAdminIncidents() {
   if (result.stale) return;
   if (!result.ok) { adminNode("incident-list").textContent = adminError(result); return; }
   adminNode("incident-scope").textContent = result.data.alcance || "Incidentes observados entre capturas persistentes; los periodos sin captura no se monitorizan.";
-  adminNode("incident-list").innerHTML = adminList(result.data.incidentes).map(item => `<article class="admin-timeline-entry"><time>${adminText(adminDate(item.detectado_en))}</time><h3>${adminText(item.componente)} · ${adminState(item.estado_actual)}</h3>${adminFacts([["Tipo de fallo", item.tipo_fallo || "No determinado"], ["Estado anterior", item.estado_anterior], ["Cambio observado", item.estado_actual], ["Instancia que continuó", item.instancia_continuadora || "Sin evidencia"], ["Recuperación", adminDate(item.recuperado_en)], ["Ventana observada", item.ventana_observada_segundos == null ? "No calculable" : `${item.ventana_observada_segundos} s (muestreo; no RTO)`]])}<p>${adminText(item.limitaciones)}</p>${adminList(item.evidencias).map(id => `<button class="button button-outline" data-open-evidence="${adminText(id)}">Ver evidencia asociada</button>`).join(" ")}</article>`).join("") || adminEmpty("No hay incidentes registrados. Las capturas de evidencia permiten registrar cambios de estado observados.");
+  adminNode("incident-list").innerHTML = adminList(result.data.incidentes).map(item => `<article class="admin-timeline-entry"><time>${adminText(adminDate(item.detectado_en))}</time><h3>${adminText(item.componente)} · ${adminState(item.estado_actual)}</h3>${adminFacts([["Última captura saludable", adminDate(item.ultima_captura_saludable)], ["Tipo de fallo", item.tipo_fallo || "No determinado"], ["Estado anterior", item.estado_anterior], ["Cambio observado", item.estado_actual], ["Instancia que continuó", item.instancia_continuadora || "Sin evidencia"], ["Recuperación", adminDate(item.recuperado_en)], ["Ventana observada", item.ventana_observada_segundos == null ? "No calculable" : `${item.ventana_observada_segundos} s (muestreo; no RTO)`]])}<p>${adminText(item.limitaciones)}</p>${adminList(item.evidencias).map(id => `<button class="button button-outline" data-open-evidence="${adminText(id)}">Ver evidencia asociada</button>`).join(" ")}</article>`).join("") || adminEmpty("No hay incidentes registrados. Las capturas de evidencia permiten registrar cambios de estado observados.");
   bindEvidenceLinks(adminNode("incident-list"));
 }
 async function loadAdminEvidence() {
@@ -662,6 +786,7 @@ function renderAdminReport() {
   const node = adminNode("evidence-report"); node.hidden = false;
   node.innerHTML = `<p class="eyebrow">REPORTE DE DEMOSTRACIÓN · ${adminText(report.id)}</p><h2>${adminText(report.nombre)}</h2>${adminFacts([["Escenario", report.escenario], ["Fecha", adminDate(report.fecha)], ["Fase", report.fase], ["Origen", report.origen], ["Evaluación", report.resultado || "Sin evaluar"], ["Ventana entre capturas", report.ventana_observacion_segundos === null || report.ventana_observacion_segundos === undefined ? "No disponible" : `${report.ventana_observacion_segundos} s (no equivale a RTO)`]])}<h3>Objetivo y conceptos</h3><p>${adminText(report.objetivo)}</p><p>${adminText(adminList(report.conceptos).join(" · "))}</p><h3>Componentes</h3><p>${adminText(adminList(report.componentes).join(" · "))}</p><h3>Estado inicial</h3>${report.referencia_inicial ? `<button class="button button-outline" data-open-evidence="${adminText(report.referencia_inicial)}">Consultar captura inicial</button>` : '<p>No se ha asociado una captura inicial.</p>'}<h3>Acciones realizadas</h3><p>${adminText(report.acciones)}</p><h3>Resultado esperado</h3><p>${adminText(Array.isArray(report.esperado) ? report.esperado.join(" · ") : report.esperado)}</p><h3>Comportamiento observado</h3><p>${adminText(report.observado)}</p><h3>Limitaciones</h3><p>${adminText(Array.isArray(report.limitaciones) ? report.limitaciones.join(" · ") : report.limitaciones)}</p><h3>Conclusión del autor</h3><p>${adminText(report.conclusion)}</p><p class="notice">El sistema no declara exitoso un escenario automáticamente. Las observaciones del autor deben contrastarse con las capturas técnicas; una evidencia importada no verifica el estado de la infraestructura.</p><h3>Evidencia técnica</h3><pre>${adminText(JSON.stringify(report.evidencias || {}, null, 2))}</pre><div class="admin-row-actions"><button class="button button-outline" id="report-export-json">Exportar JSON</button><button class="button button-outline" id="report-export-csv">Exportar CSV</button><button class="button button-accent" id="report-print">Imprimir reporte</button></div>`;
   bindEvidenceLinks(node);
+  node.querySelector(".admin-row-actions")?.insertAdjacentHTML("beforebegin", labReportHtml(report));
   if (report.fase === "inicial" && report.origen === "captura") {
     const resume = document.createElement("button");
     resume.type = "button"; resume.className = "button button-outline";
@@ -691,7 +816,7 @@ function exportAdminReport(format) {
       if (/^[\s]*[=+@-]/.test(text)) text = `'${text}`;
       return `"${text.replaceAll('"', '""')}"`;
     };
-    content = "\uFEFF" + [["campo", "valor"], ...Object.entries(ADMIN_REPORT)].map(row => row.map(cell).join(",")).join("\r\n"); type = "text/csv;charset=utf-8";
+    content = "\uFEFF" + [["campo", "valor"], ...Object.entries(ADMIN_REPORT), ...adminList(ADMIN_REPORT.metricas).map(row => [`metrica · ${row.grupo} · ${row.metrica}`, `${row.valor} [${row.tipo}]`])].map(row => row.map(cell).join(",")).join("\r\n"); type = "text/csv;charset=utf-8";
   }
   const url = URL.createObjectURL(new Blob([content], {type})), link = document.createElement("a");
   link.href = url; link.download = `nexustix-evidencia-${String(ADMIN_REPORT.id).replace(/[^a-zA-Z0-9_-]/g, "")}.${format}`;
@@ -749,23 +874,18 @@ function initializeAdmin() {
   Object.entries(refreshes).forEach(([id, handler]) => adminNode(id).addEventListener("click", event => adminBusy(event.currentTarget, handler)));
   adminNode("event-editor-reset").addEventListener("click", resetEventEditor);
   adminNode("event-editor").addEventListener("submit", submitAdminEvent);
+  adminNode("layout-designer").addEventListener("input", refreshLayoutDesigner);
+  adminNode("layout-designer").addEventListener("change", refreshLayoutDesigner);
+  adminNode("layout-add-zone").addEventListener("click", () => addLayoutZone());
+  resetEventEditor();
   adminNode("trace-form").addEventListener("submit", submitAdminTrace);
+  initializeInsights();
   adminNode("lab-report-form").addEventListener("submit", submitLabReport);
   adminNode("lab-scenario").addEventListener("change", renderLabScenario);
   adminNode("evidence-import-form").addEventListener("submit", importAdminEvidence);
   adminNode("cluster-announcement-form").addEventListener("submit", submitClusterAnnouncement);
   adminNode("lab-export-observation").addEventListener("click", exportObservedSnapshot);
   adminNode("admin-sales-event").addEventListener("change", () => { ["admin-sales", "admin-orders", "admin-tickets"].forEach(id => ADMIN_PAGES.delete(id)); loadAdminSales(); });
-  adminNode("access-form").addEventListener("submit", event => {
-    event.preventDefault(); const form = event.currentTarget;
-    adminBusy(form.querySelector("button"), async () => {
-      const data = new FormData(form);
-      const result = await adminRequest(`${CONFIG.COMPRAS_LB_URL}/entradas/validar`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({qr: data.get("qr"), evento_id: Number(data.get("evento_id"))})});
-      if (result.stale) return;
-      adminNotice("access-result", result.ok ? "Acceso permitido. Entrada marcada como utilizada." : adminError(result, "No se pudo validar la entrada."), result.ok ? "success" : "error");
-      if (result.ok) form.elements.qr.value = "";
-    });
-  });
   adminNode("role-form").addEventListener("submit", event => {
     event.preventDefault(); const form = event.currentTarget;
     adminBusy(form.querySelector("button"), async () => {

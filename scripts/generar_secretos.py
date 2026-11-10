@@ -14,6 +14,7 @@ como container_file_t para que Docker pueda montar los secretos.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import secrets
 import shlex
@@ -80,7 +81,15 @@ def frontend_config(entorno: entornos.Entorno, public_host: str) -> str:
         f'  COMPRAS_R1_URL: "http://{public_host}:{ports["compras1"]}",\n'
         f'  COMPRAS_R2_URL: "http://{public_host}:{ports["compras2"]}",\n'
         f'  COMPRAS_LB_URL: "http://{public_host}:{ports["compras_lb"]}",\n'
+        f'  PUBLIC_PORTAL_URL: "http://{public_host}:{ports["frontend"]}",\n'
+        '  DEPLOYMENT_PROFILE: "local",\n'
+        f'  DEPLOYMENT_ID: {json.dumps(entorno.proyecto)},\n'
+        "  INSTALLATION_ID: null,\n"
+        "  RELEASE: null,\n"
+        "  NODE_COUNT: null,\n"
+        "  ...(window.NEXUSTIX_CONFIG || {}),\n"
         "});\n"
+        "window.NEXUSTIX_CONFIG = CONFIG;\n"
     )
 
 

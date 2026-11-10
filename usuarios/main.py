@@ -1,3 +1,6 @@
+from collections import deque
+import json
+import logging
 import hashlib
 import os
 import secrets
@@ -172,8 +175,20 @@ def get_authenticated_user(
     return user
 
 
+# La tabla de Usuarios exige una revisión exacta: este registro es por instancia y no persiste.
+ROLE_AUDIT = deque(maxlen=100)
+
+
+def security_event(action, resource, result, user):
+    entry = {"accion": action, "recurso": resource, "resultado": result, "actor": str(user.id), "rol": user.role,
+             "momento": datetime.now(timezone.utc).isoformat(), "instancia": os.getenv("INSTANCE_ID", "usuarios")}
+    ROLE_AUDIT.append(entry)
+    logging.getLogger("nexustix.audit").warning(json.dumps(entry))
+
+
 def require_admin(user: Usuario = Depends(get_authenticated_user)):
     if user.role != "administrador":
+        security_event("acceso_administrativo", "usuarios", "denegado", user)
         raise HTTPException(status_code=403, detail="Se requiere rol administrador")
     return user
 
@@ -336,9 +351,13 @@ def assign_role(user_id: int, data: RoleRequest, db: Session = Depends(get_db), 
     # Revoca sesiones de refresco anteriores; tokens de acceso duran hasta su exp.
     db.query(RefreshSession).filter_by(user_id=user_id, revoked_at=None).update({"revoked_at": datetime.now(timezone.utc)})
     db.commit()
-    import logging
-    logging.getLogger("nexustix.audit").warning("role_changed actor=%s user=%s role=%s", admin.id, user.id, user.role)
+    security_event("cambiar_rol", f"usuario:{user.id}:{user.role}", "ejecutado", admin)
     return {"id": user.id, "role": user.role, "requiere_nuevo_login": True}
+
+
+@app.get("/auditoria/roles")
+def role_audit(_admin: Usuario = Depends(require_admin)):
+    return {"registros": list(ROLE_AUDIT), "alcance": "Memoria de esta instancia; se pierde al reiniciarla. El registro duradero son sus logs."}
 
 
 

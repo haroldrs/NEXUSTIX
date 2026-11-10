@@ -111,8 +111,13 @@ def prepare(destination, deployment, addresses, ports):
                   'EVENTOS_URL':f"http://{addresses[0]}:{ports['EVENTOS']}",
                   'COMPRAS_LB_URL':f"http://{addresses[0]}:{ports['BALANCER']}",
                   'COMPRAS_R1_URL':f"http://{addresses[0]}:{ports['COMPRAS']}",
-                  'COMPRAS_R2_URL':f"http://{addresses[1]}:{ports['COMPRAS']}",'CHECKOUT_ORDERS':True}
-            write_secret(base/'secrets/frontend-config.js','const CONFIG = Object.freeze('+json.dumps(urls)+');\n',mode=0o644)
+                  'COMPRAS_R2_URL':f"http://{addresses[1]}:{ports['COMPRAS']}",'CHECKOUT_ORDERS':True,
+                  'PUBLIC_PORTAL_URL':f"http://{addresses[0]}:{ports['FRONTEND']}",
+                  'DEPLOYMENT_PROFILE':'distribuido','DEPLOYMENT_ID':cfg['LAN_DEPLOYMENT_ID'],
+                  'INSTALLATION_ID':cfg['LAN_INSTALLATION_UUID'],'RELEASE':None,'NODE_COUNT':len(ROLES)}
+            public_config=('const CONFIG = Object.freeze({\n  ...'+json.dumps(urls)+',\n'
+                           '  ...(window.NEXUSTIX_CONFIG || {}),\n});\nwindow.NEXUSTIX_CONFIG = CONFIG;\n')
+            write_secret(base/'secrets/frontend-config.js',public_config,mode=0o644)
     return destination
 
 

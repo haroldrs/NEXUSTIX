@@ -1,0 +1,34 @@
+# PLANTILLA INACTIVA: un grupo Patroni por base lógica (usuarios, eventos, compras).
+# No sustituye al entrypoint actual. Valores PATRONI_* y credenciales fuera del repositorio.
+scope: nexustix-PATRONI_BASE
+namespace: /nexustix/
+name: PATRONI_NOMBRE_NODO
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: PATRONI_DIRECCION_INTERNA:8008
+  certfile: /ruta/fuera/del/repositorio/patroni.crt
+  keyfile: /ruta/fuera/del/repositorio/patroni.key
+etcd3:
+  hosts: ETCD_MIEMBROS_INTERNOS
+  protocol: https
+  cacert: /ruta/fuera/del/repositorio/ca.crt
+  cert: /ruta/fuera/del/repositorio/cliente.crt
+  key: /ruta/fuera/del/repositorio/cliente.key
+watchdog:
+  # required: rechaza el liderazgo si no puede activar un watchdog efectivo.
+  mode: required
+  device: /dev/watchdog
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    # Sin sincronía estricta, una promoción puede perder commits confirmados.
+    synchronous_mode: true
+    synchronous_mode_strict: true
+    maximum_lag_on_failover: 0
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: PATRONI_DIRECCION_INTERNA:5432
+  data_dir: /var/lib/postgresql/data
+  # Las credenciales se inyectan desde el gestor de secretos del entorno.

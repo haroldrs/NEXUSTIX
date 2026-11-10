@@ -165,14 +165,16 @@ def inventory_fingerprint(inventory):
 def _access(data):
     """Sólo prepara un nombre estable; la infraestructura externa no se crea."""
     access = data.setdefault("access", {"mode": "manual"})
-    _keys(access, {"mode", "hostname", "failure_domains"}, {"mode"}, "access")
+    _keys(access, {"mode", "hostname", "failure_domains", "scheme"}, {"mode"}, "access")
     if access["mode"] not in {"manual", "external_dns", "external_proxy"}:
         raise InventoryError("access.mode debe ser manual, external_dns o external_proxy")
     if access["mode"] == "manual":
         if set(access) != {"mode"}:
             raise InventoryError("access manual no admite hostname ni failure_domains")
         return
-    _keys(access, {"mode", "hostname", "failure_domains"}, {"mode", "hostname", "failure_domains"}, "access")
+    _keys(access, {"mode", "hostname", "failure_domains", "scheme"}, {"mode", "hostname", "failure_domains"}, "access")
+    if access.get("scheme", "http") not in {"http", "https"}:
+        raise InventoryError("access.scheme debe ser http o https")
     hostname = access["hostname"]
     if (not isinstance(hostname, str) or len(hostname) > 253 or "." not in hostname
             or any(not HOST_LABEL.fullmatch(label) for label in hostname.split("."))
@@ -201,13 +203,32 @@ def stable_access(inventory):
     result = {**access, "verified": False, "automatic_switch_verified": False,
               "status": "manual" if access["mode"] == "manual" else "external_configuration_required"}
     if access["mode"] != "manual":
-        result["url"] = f"http://{access['hostname']}:{inventory['ports']['public']}"
-        result["api_urls"] = {domain: f"http://{access['hostname']}:{inventory['ports'][domain]}" for domain in DOMAINS}
+        scheme = access.get("scheme", "http")
+        result["url"] = f"{scheme}://{access['hostname']}:{inventory['ports']['public']}"
+        result["api_urls"] = {domain: f"{scheme}://{access['hostname']}:{inventory['ports'][domain]}" for domain in DOMAINS}
     return result
 
 
+def _coordination(data):
+    """Plan declarativo: no instala nada, y el modo activo no existe a propósito."""
+    plan = data.get("coordination")
+    if plan is None:
+        return
+    _keys(plan, {"mode", "voters"}, {"mode", "voters"}, "coordination")
+    if plan["mode"] != "prepared_inactive":
+        raise InventoryError("coordination.mode solo admite prepared_inactive")
+    voters = plan["voters"]
+    if not isinstance(voters, list) or len(voters) not in {3, 5} or len(set(voters)) != len(voters):
+        raise InventoryError("coordination.voters requiere 3 o 5 nodos distintos")
+    domains = {node["id"]: node["failure_domain"] for node in data["nodes"]}
+    if any(voter not in domains for voter in voters):
+        raise InventoryError("coordination.voters debe referirse a nodos declarados")
+    if len({domains[voter] for voter in voters}) != len(voters):
+        raise InventoryError("coordination.voters requiere dominios físicos independientes")
+
+
 def validate_inventory(data):
-    _keys(data, {"version", "deployment", "profile", "gateway", "nodes", "databases", "ports", "applications", "release", "access"},
+    _keys(data, {"version", "deployment", "profile", "gateway", "nodes", "databases", "ports", "applications", "release", "access", "coordination"},
           {"version", "deployment", "profile", "gateway", "nodes", "databases"}, "inventario")
     data = copy.deepcopy(data)
     _integer(data["version"], "version", 1, 1)
@@ -348,6 +369,7 @@ def validate_inventory(data):
                              for failure in set(domains.values()) if failure != domains[db["primary"]])
             if db["replication"] != "sync" or len(db["standbys"]) - worst_loss < db["sync_quorum"]:
                 raise InventoryError(f"{name}: perfil HA requiere replicación sync y conservar al menos un standby extra respecto al quórum")
+    _coordination(data)
     return data
 
 
@@ -365,6 +387,9 @@ def topology_document(inventory):
     document["ha_status"] = "prepared_manual_recovery" if document["profile"] == "alta_disponibilidad" else "not_claimed"
     document["physical_ha_verified"] = False
     document["automatic_failover"] = False
+    plan = document.get("coordination")
+    if plan:
+        document["coordination_plan"] = plan
     document["coordination"] = "manual_fencing_required"
     document["inventory_sha256"] = inventory_fingerprint(inventory)
     document["release_is_declarative"] = True

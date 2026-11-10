@@ -75,7 +75,7 @@ def haproxy_config(inventory, node, public):
     return "\n".join(rows) + "\n"
 
 
-def frontend_config(inventory):
+def frontend_config(inventory, installation_id=None):
     ports = inventory["ports"]
     return (
         "// Configuración pública. El navegador utiliza el gateway por el que ingresó.\n"
@@ -85,12 +85,20 @@ def frontend_config(inventory):
         f"  COMPRAS_LB_URL: `${{location.protocol}}//${{location.hostname}}:{ports['compras']}`,\n"
         f"  COMPRAS_R1_URL: `${{location.protocol}}//${{location.hostname}}:{ports['compras']}`,\n"
         f"  COMPRAS_R2_URL: `${{location.protocol}}//${{location.hostname}}:{ports['compras']}`,\n"
+        f"  PUBLIC_PORTAL_URL: `${{location.protocol}}//${{location.hostname}}:{ports['public']}`,\n"
+        f"  DEPLOYMENT_PROFILE: {json.dumps(inventory['profile'])},\n"
+        f"  DEPLOYMENT_ID: {json.dumps(inventory['deployment'])},\n"
+        f"  INSTALLATION_ID: {json.dumps(installation_id)},\n"
+        f"  RELEASE: {json.dumps(inventory['release'])},\n"
+        f"  NODE_COUNT: {len(inventory['nodes'])},\n"
         "  CHECKOUT_ORDERS: true,\n"
+        "  ...(window.NEXUSTIX_CONFIG || {}),\n"
         "});\n"
+        "window.NEXUSTIX_CONFIG = CONFIG;\n"
     )
 
 
-def render_node(inventory, node, source_root):
+def render_node(inventory, node, source_root, installation_id=None):
     """Devuelve Compose y archivos públicos relativos al directorio de un nodo."""
     project = f"nexustix-nodes-{inventory['deployment']}-{node['id']}"
     # La misma carpeta generada puede viajar a Fedora o WSL con otra ruta de código.
@@ -151,7 +159,7 @@ def render_node(inventory, node, source_root):
         frontend["volumes"] = ["./config/frontend-config.js:/run/secrets/frontend_config:ro,z"]
         frontend["healthcheck"] = {"test": ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health || exit 1"],
                                    "interval": "5s", "timeout": "4s", "retries": 5}
-        files["config/frontend-config.js"] = frontend_config(inventory)
+        files["config/frontend-config.js"] = frontend_config(inventory, installation_id=installation_id)
         compose["services"]["frontend"] = frontend
 
     origins = [f"http://{item['address']}:{ports['public']}" for item in inventory["nodes"] if "gateway" in item["roles"]]
@@ -172,13 +180,16 @@ def render_node(inventory, node, source_root):
             "NEXUSTIX_NODE_ID": node["id"], "DB_CONNECT_TIMEOUT_SECONDS": "3",
             "NEXUSTIX_SERVICE": domain,
             "NEXUSTIX_DEPLOYMENT_ID": inventory["deployment"], "NEXUSTIX_RELEASE": inventory["release"],
+            "NEXUSTIX_DEPLOYMENT_PROFILE": inventory["profile"],
+            "NEXUSTIX_INSTALLATION_ID": installation_id or "",
+            "NEXUSTIX_NODE_COUNT": str(len(inventory["nodes"])),
             "NEXUSTIX_INVENTORY_SHA256": inventory_fingerprint(inventory),
             "NEXUSTIX_OPERATIONS_INVENTORY_FILE": "/run/config/operations-inventory.json",
             "USUARIOS_URL": "http://router:8001", "EVENTOS_URL": "http://router:8002",
         }
         credentials = [f"{domain}_database_url", "jwt_public"]
         if domain == "usuarios":
-            env.update({"JWT_PRIVATE_KEY_FILE": "/run/secrets/jwt_private", "AUTH_COOKIE_SECURE": "false",
+            env.update({"JWT_PRIVATE_KEY_FILE": "/run/secrets/jwt_private", "AUTH_COOKIE_SECURE": "true" if stable.get("url", "").startswith("https://") else "false",
                         "ACCESS_TOKEN_TTL_SECONDS": "600", "REFRESH_TOKEN_TTL_DAYS": "1"})
             credentials += ["jwt_private", "admin_password"]
         else:
@@ -187,7 +198,8 @@ def render_node(inventory, node, source_root):
         if domain == "eventos":
             env["NEXUSTIX_SEED_EVENTS"] = "0"
         if domain == "compras":
-            env.update({"PURCHASE_RECOVERY_INTERVAL_SECONDS": "10", "PURCHASE_RECOVERY_AUTO_RELEASE": "0"})
+            env.update({"PURCHASE_RECOVERY_INTERVAL_SECONDS": "10", "PURCHASE_RECOVERY_AUTO_RELEASE": "0",
+                        "PUBLIC_PORTAL_URL": stable.get("url") or (origins[0] if origins else "")})
         config["environment"] = env
         attach_secrets(config, credentials)
         config["ports"] = [f"{bind_ip}:{ports[f'{domain}_backend']}:{INTERNAL_PORTS[domain]}"]

@@ -6,6 +6,10 @@ Se amplió el flujo de negocio y se ejecutó un laboratorio separado; no se
 alteraron los contenedores del staging previo ni se eliminaron sus volúmenes.
 La fase VM quedó en archivos/guías, según la instrucción del usuario.
 
+Para completar los apartados oficiales: [matriz de cumplimiento](MATRIZ_CUMPLIMIENTO_SISOPE2.md) y
+[evidencias y exposición](PREPARACION_EXPOSICION.md). Portada, integrantes, bibliografía y resultados
+finales están pendientes de los autores.
+
 El informe que sigue corresponde a la entrega anterior de Windows. Sus
 resultados y limitaciones temporales no sustituyen la evidencia nueva.
 
