@@ -220,7 +220,9 @@ def render_node(inventory, node, source_root, installation_id=None):
         config["environment"] = {
             "POSTGRES_DB": f"{domain}_db", "POSTGRES_USER": "postgres",
             "POSTGRES_PASSWORD_FILE": f"/run/secrets/{domain}_admin_password",
-            "POSTGRES_INITDB_ARGS": "--auth-host=scram-sha-256 --data-checksums",
+            # El wrapper exporta LC_ALL=C; sin --encoding initdb crearía SQL_ASCII
+            # y psycopg2 rechazaría cualquier texto con tildes o ñ.
+            "POSTGRES_INITDB_ARGS": "--auth-host=scram-sha-256 --data-checksums --encoding=UTF8 --locale=C",
             "PGDATA": "/var/lib/postgresql/data/pgdata",
             "NEXUSTIX_PG_ROLE": "primary" if is_primary else "standby",
             "NEXUSTIX_PG_DOMAIN": domain, "NEXUSTIX_PG_NODE_ID": replica_id(domain, node["id"]),

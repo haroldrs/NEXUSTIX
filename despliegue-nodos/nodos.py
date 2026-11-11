@@ -55,6 +55,11 @@ def database_url(inventory, node, domain, password):
         address = (f"{domain}_db:5432" if member == node["id"] else
                    f"{nodes[member]['address']}:{inventory['ports'][domain + '_db']}")
         candidates.append("host=" + address)
+    if len(candidates) == 1:
+        # SQLAlchemy sólo separa "host:puerto" cuando hay varios host=; con uno
+        # solo lo pasaría entero a libpq como nombre de host.
+        host, port = candidates[0].removeprefix("host=").rsplit(":", 1)
+        candidates = [f"host={host}", f"port={port}"]
     return (f"postgresql://nexustix_app:{quote(password, safe='')}@/{domain}_db?"
             + "&".join(candidates) + "&target_session_attrs=read-write&connect_timeout=3")
 

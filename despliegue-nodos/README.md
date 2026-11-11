@@ -289,6 +289,27 @@ administrador tampoco se crea automáticamente: el bootstrap existente queda
 como acción separada del operador; la clave inicial se prepara en el secreto
 `admin_password` de los nodos Usuarios, sin publicarla en documentación.
 
+## Verificar por HTTP después de desplegar
+
+Con el administrador creado, desde la PC administradora (sólo biblioteca
+estándar; no ejecuta Docker ni borra datos, crea datos sintéticos `QA ...`):
+
+```bash
+python3 despliegue-nodos/verificar.py --entrega "$HOME/.config/nexustix/nodos-dos-v1" \
+  --admin-email admin@example.com --crear-eventos
+```
+
+Comprueba gateways y reparto por nodo (cabecera `X-Nexustix-Backend`), crea
+eventos, compra con clave idempotente, paga, valida la entrada QR dos veces,
+rechaza un pago, disputa la última entrada entre dos compradores, consulta los
+standbys en streaming (`--standbys N`, 0 en una instalación de un nodo) y audita
+el inventario. `--solo compra` (repetible) limita los pasos y `--gateway URL`
+usa un portal concreto, p. ej. el que sigue vivo tras detener servicios en otra PC.
+
+Las bases se inicializan en UTF-8 (`--encoding=UTF8 --locale=C`). Una entrega
+anterior a ese cambio creó bases `SQL_ASCII`, que rechazan textos con tildes o
+ñ con HTTP 500; regenerar no las convierte: hay que inicializar volúmenes nuevos.
+
 ## Agregar, retirar nodos y regenerar
 
 Edite **el YAML fuente de la misma instalación**, sin cambiar `deployment` ni
