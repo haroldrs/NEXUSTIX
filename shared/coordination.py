@@ -25,6 +25,8 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 
+from fastapi import Depends, HTTPException, Request
+
 HEARTBEAT_S = float(os.getenv("NEXUSTIX_HEARTBEAT_SECONDS", "2"))
 SUSPECT_S = float(os.getenv("NEXUSTIX_HEARTBEAT_TIMEOUT_SECONDS", "6"))   # T + Δ
 DEAD_S = float(os.getenv("NEXUSTIX_HEARTBEAT_DEAD_SECONDS", "15"))
@@ -375,7 +377,6 @@ def current():
 def install(app, service: str, require_admin):
     """Registra las rutas /coordinacion/* y, si está habilitado, el hilo de latidos."""
     global COORDINATOR
-    from fastapi import Depends, HTTPException, Request
 
     peers = load_peers()
     instance = os.getenv("NEXUSTIX_COORDINATION_ID") or os.getenv("INSTANCE_ID") or service
@@ -386,9 +387,14 @@ def install(app, service: str, require_admin):
     @app.middleware("http")
     async def clock_middleware(request: Request, call_next):
         header = request.headers.get(CLOCK_HEADER)
+        correlation = request.headers.get("X-Correlation-ID")
         if header:
-            coordinator.incoming(header, f"recibe {request.method} {request.url.path}", request.headers.get("X-Correlation-ID"))
-        return await call_next(request)
+            coordinator.incoming(header, f"recibe {request.method} {request.url.path}", correlation)
+        response = await call_next(request)
+        if header:
+            # La respuesta también es un mensaje: devuelve el reloj al remitente.
+            response.headers.update(coordinator.outgoing(f"responde {request.method} {request.url.path}", correlation))
+        return response
 
     def internal_guard():
         if coordinator.silenced:
@@ -433,7 +439,18 @@ def install(app, service: str, require_admin):
         return {"instancia": coordinator.me["id"], "eventos": list(coordinator.events)}
 
     @app.get("/admin/coordinacion")
-    def admin_state(_admin=Depends(require_admin)):
+    def admin_state(request: Request, _admin=Depends(require_admin)):
+        if coordinator.silenced:
+            # Una instancia en caída simulada tiene una vista desactualizada:
+            # se muestra la de una instancia viva.
+            for peer in sorted(coordinator.peers.values(), key=lambda p: -p["prioridad"]):
+                try:
+                    response = coordinator.transport.session.get(peer["url"].rstrip("/") + "/admin/coordinacion",
+                        headers={"Authorization": request.headers.get("Authorization", "")}, timeout=(1, 2), allow_redirects=False)
+                    if response.status_code == 200:
+                        return {**response.json(), "redirigido_desde": coordinator.me["id"]}
+                except Exception:
+                    continue
         return coordinator.snapshot()
 
     @app.get("/admin/coordinacion/eventos")

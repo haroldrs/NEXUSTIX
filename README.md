@@ -10,6 +10,15 @@ Este repositorio se prepara para revisión antes de publicarlo en GitHub privado
 revisión explícita: [hallazgos](docs/HALLAZGOS_PUBLICACION.md).
 [Entrega y límites de publicación/LAN](docs/PUBLICACION_Y_LAN.md).
 
+**Alta disponibilidad automática (13/11/2026):** con `coordination.mode: patroni`
+y un árbitro, si se apaga cualquier PC la réplica de cada base se promueve sola
+y el navegador cambia solo de gateway. Guía para el laboratorio (Tailscale,
+árbitro, paquete sin Internet): [ALTA_DISPONIBILIDAD.md](despliegue-nodos/ALTA_DISPONIBILIDAD.md).
+Resultados medidos: [RESULTADOS_ALTA_DISPONIBILIDAD.md](docs/RESULTADOS_ALTA_DISPONIBILIDAD.md).
+El panel **Administración → Coordinación distribuida** muestra el directorio de
+nombres con latidos, la elección Bully, los relojes de Lamport y vectorial, y la
+sincronización de Cristian y Berkeley.
+
 Nuevo despliegue configurable para **1, 2, 3 o más nodos**:
 [inventario, preparación y comandos mínimos](despliegue-nodos/README.md).
 Ruta independiente, sin ejecutar ni probar en esta entrega; prepara redundancia

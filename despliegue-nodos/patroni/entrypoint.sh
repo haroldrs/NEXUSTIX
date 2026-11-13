@@ -6,6 +6,10 @@ set -eu
 read_secret() { tr -d '\r\n' < "$1"; }
 export PATRONI_SUPERUSER_USERNAME=postgres
 export PATRONI_SUPERUSER_PASSWORD="$(read_secret "$NEXUSTIX_PG_ADMIN_PASSWORD_FILE")"
+# pg_rewind usa el superusuario: rebobina a una antigua principal para que
+# vuelva como réplica de la nueva sin clonar toda la base.
+export PATRONI_REWIND_USERNAME=postgres
+export PATRONI_REWIND_PASSWORD="$PATRONI_SUPERUSER_PASSWORD"
 export PATRONI_REPLICATION_USERNAME=replicator
 export PATRONI_REPLICATION_PASSWORD="$(read_secret "$NEXUSTIX_PG_REPLICATION_PASSWORD_FILE")"
 NEXUSTIX_APP_PASSWORD="$(read_secret "$NEXUSTIX_PG_APP_PASSWORD_FILE")"

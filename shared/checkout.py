@@ -96,6 +96,8 @@ class EventsClient:
                     request_headers.update(coordination.current().outgoing(f"envía {method} {path.split('?')[0]}", correlation_id.get()))
                 response = requests.request(method, self.url + path, params=params,
                     headers=request_headers, timeout=(2, 5), allow_redirects=False)
+                if coordination.current() and response.headers.get(coordination.CLOCK_HEADER):
+                    coordination.current().incoming(response.headers[coordination.CLOCK_HEADER], f"recibe respuesta {method} {path.split('?')[0]}", correlation_id.get())
                 if 200 <= response.status_code < 500:
                     with self.lock:
                         self.failures = 0
@@ -148,7 +150,8 @@ class Coordinator:
             clock = coordination.current().record(f"pedido {kind}", correlation=correlation_id.get(), kind="saga") if coordination.current() else None
             db.add(self.m.Outbox(orden_id=order.id, tipo=kind, dedupe=key,
                 datos={"estado": order.estado, "total_centimos": order.total_centimos,
-                       "correlation_id": correlation_id.get(), "instancia": self.instance,
+                       "correlation_id": correlation_id.get(),
+                       "instancia": coordination.current().me["id"] if coordination.current() else self.instance,
                        "nodo": os.getenv("NEXUSTIX_NODE_ID"), "lamport": clock["lamport"] if clock else None}))
 
     def state(self, db, order, state):

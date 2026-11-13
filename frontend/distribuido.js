@@ -46,7 +46,7 @@ function renderCoordination(data) {
   const params = data.parametros || {};
   adminNode("coord-params").innerHTML = adminFacts([["Intervalo de latido (T)", `${params.latido_s} s`], ["Sospecha (T + Δ)", `${params.sospecha_s} s`], ["Caída declarada", `${params.caida_s} s`], ["TTL de resolución de nombres", `${params.ttl_resolucion_s} s`]]);
   const rows = adminList(data.directorio);
-  adminNode("coord-directory").innerHTML = rows.length ? `<table class="data-table"><thead><tr><th>Instancia</th><th>Servicio</th><th>Computadora</th><th>Dirección</th><th>Prioridad</th><th>Estado</th><th>Último latido</th><th>Acción</th></tr></thead><tbody>${rows.map(row => `<tr><td>${adminText(row.id)}${row.id === data.coordinador ? " <strong>· coordinador</strong>" : ""}</td><td>${adminText(row.servicio)}</td><td>${adminText(row.nodo)}</td><td>${adminText(row.url || "local")}</td><td>${adminText(row.prioridad)}</td><td>${coordStateChip(row.estado)}</td><td>${row.es_yo ? "esta instancia" : row.ultimo_latido_hace_s == null ? "nunca" : `hace ${adminText(row.ultimo_latido_hace_s)} s`}</td><td>${row.estado === "silenciada" ? `<button type="button" class="button button-outline" data-coord-restore="${adminText(row.id)}">Restaurar</button>` : `<button type="button" class="button button-outline" data-coord-silence="${adminText(row.id)}">Simular caída</button><button type="button" class="button button-outline" data-coord-restore="${adminText(row.id)}">Restaurar</button>`}</td></tr>`).join("")}</tbody></table>` : adminEmpty("Sin instancias declaradas.");
+  adminNode("coord-directory").innerHTML = rows.length ? `<table class="data-table"><thead><tr><th>Instancia</th><th>Servicio</th><th>Computadora</th><th>Dirección</th><th>Prioridad</th><th>Estado</th><th>Último latido</th><th>Acción</th></tr></thead><tbody>${rows.map(row => `<tr><td>${adminText(row.id)}${row.id === data.coordinador ? " <strong>· coordinador</strong>" : ""}</td><td>${adminText(row.servicio)}</td><td>${adminText(row.nodo)}</td><td>${adminText(row.url || "local")}</td><td>${adminText(row.prioridad)}</td><td>${coordStateChip(row.estado)}</td><td>${row.es_yo ? "esta instancia" : row.ultimo_latido_hace_s == null ? "nunca" : `hace ${adminText(row.ultimo_latido_hace_s)} s`}</td><td>${row.estado === "viva" ? `<button type="button" class="button button-outline" data-coord-silence="${adminText(row.id)}">Simular caída</button>` : `<button type="button" class="button button-outline" data-coord-restore="${adminText(row.id)}">Restaurar</button>`}</td></tr>`).join("")}</tbody></table>` : adminEmpty("Sin instancias declaradas.");
   const cristian = data.cristian || {};
   adminNode("coord-cristian").innerHTML = adminFacts([["Servidor de referencia", cristian.referencia || "Sin coordinador"], ["Desfase estimado", cristian.desfase_ms == null ? "Sin medición" : `${cristian.desfase_ms} ms`], ["Ida y vuelta (RTT)", cristian.rtt_ms == null ? "Sin medición" : `${cristian.rtt_ms} ms`], ["Medido", adminDate(cristian.medido_en)]]);
   const berkeley = data.berkeley || {};
@@ -57,7 +57,9 @@ function renderCoordination(data) {
 }
 
 function renderCoordinationEvents(data) {
-  COORD_EVENTS = adminList(data.eventos).slice(-80).reverse();
+  const showInternal = adminNode("coord-internal")?.checked;
+  // Las consultas periódicas entre servicios (/interno/...) se ocultan por defecto.
+  COORD_EVENTS = adminList(data.eventos).filter(row => showInternal || !String(row.evento).includes("/interno/")).slice(-40).reverse();
   COORD_SELECTED = COORD_SELECTED.filter(id => COORD_EVENTS.some(row => row.id === id));
   adminNode("coord-events").innerHTML = COORD_EVENTS.length ? `<p class="field-help">Instancias consultadas: ${adminText(adminList(data.consultadas).join(" · "))}</p><table class="data-table"><thead><tr><th>Comparar</th><th>Instancia</th><th>Evento</th><th>Lamport</th><th>Vector</th><th>Hora física</th></tr></thead><tbody>${COORD_EVENTS.map(row => `<tr><td><input type="checkbox" data-coord-event="${adminText(row.id)}" ${COORD_SELECTED.includes(row.id) ? "checked" : ""} aria-label="Comparar evento"></td><td>${adminText(row.instancia)}</td><td>${adminText(row.evento)}</td><td>${adminText(row.lamport)}</td><td><code>${adminText(coordVectorText(row.vector))}</code></td><td>${adminDate(row.fisico)}</td></tr>`).join("")}</tbody></table>` : adminEmpty("Aún no hay mensajes entre servicios. Realiza una compra y vuelve a consultar.");
   renderCoordinationComparison();
@@ -111,6 +113,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const panel = document.querySelector('[data-admin-panel="coordination"]');
   if (!panel) return;
   adminNode("coord-refresh").addEventListener("click", refreshCoordination);
+  adminNode("coord-internal").addEventListener("change", refreshCoordination);
   adminNode("coord-election").addEventListener("click", event => coordAction(event.currentTarget, "/eleccion", "Elección convocada. El historial muestra los mensajes."));
   adminNode("coord-sync").addEventListener("click", event => coordAction(event.currentTarget, "/sincronizar", "Ronda de Cristian y Berkeley ejecutada."));
   panel.addEventListener("click", event => {

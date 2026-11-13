@@ -131,10 +131,15 @@ def members(inv, node):
         return {}
 
 
-def streaming(inv, observer, member):
-    """Réplica sana: rol de réplica y transmisión WAL activa (no solo creándose)."""
+def streaming(inv, observer, member, synchronous=False):
+    """Réplica sana: rol de réplica y transmisión WAL activa (no solo creándose).
+
+    En modo síncrono, Patroni solo promueve a la réplica marcada como síncrona:
+    es la única con garantía de tener todas las transacciones confirmadas.
+    """
     data = members(inv, observer).get(member, {})
-    return data.get("role") in {"replica", "sync_standby"} and data.get("state") == "streaming"
+    roles = {"sync_standby"} if synchronous else {"replica", "sync_standby"}
+    return data.get("role") in roles and data.get("state") == "streaming"
 
 
 def cluster(inv, node):
@@ -186,7 +191,7 @@ def main():
         member = {n: f"nx_{DOMAIN}_{n}" for n in ("pc1", "pc2")}
 
         boot = wait(lambda: cluster(inv, "pc1").get(member["pc1"]) == "leader"
-                    and streaming(inv, "pc1", member["pc2"]), 240, 2)
+                    and streaming(inv, "pc1", member["pc2"], synchronous=True), 240, 2)
         sql(inv, "pc1", "CREATE TABLE IF NOT EXISTS ventas(id serial primary key, detalle text)")
         sql(inv, "pc1", "INSERT INTO ventas(detalle) SELECT 'antes-' || g FROM generate_series(1,50) g")
         report(results, {"nombre": "Arranque: pc1 principal, pc2 réplica", "aprobado": boot is not None,
@@ -208,7 +213,7 @@ def main():
         # 3. Reincorporación de pc1 como réplica.
         sh("start", name("etcd", "pc1"))
         sh("start", name("pg", "pc1"))
-        rejoined = wait(lambda: streaming(inv, "pc2", member["pc1"]), 180, 2)
+        rejoined = wait(lambda: streaming(inv, "pc2", member["pc1"], synchronous=True), 180, 2)
         synced = wait(lambda: sql(inv, "pc1", "SELECT count(*) FROM ventas WHERE detalle='tras-caida'") == "1", 60)
         results["filas_tras_caida_en_pc1"] = sql(inv, "pc1", "SELECT count(*) FROM ventas WHERE detalle='tras-caida'")
         report(results, {"nombre": "Reincorporación de pc1 como réplica", "aprobado": rejoined is not None and synced is not None,

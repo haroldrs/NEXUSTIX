@@ -7,9 +7,9 @@ los servicios), el sistema sigue funcionando solo:
 |---|---|---|
 | Servicios (Usuarios, Eventos, Compras) | Los gateways de las otras PC dejan de enviarle solicitudes | ~6 s (2 sondeos fallidos cada 3 s) |
 | Navegador | Las consultas siguientes se envían solas a otro gateway, sin recargar la página | Siguiente solicitud |
-| Bases de datos | Patroni promueve la réplica más actualizada; los servicios se reconectan solos | ~37 s (ver tabla de resultados) |
+| Bases de datos | Patroni promueve la réplica síncrona; los servicios se reconectan solos | ~28 s, sin perder compras confirmadas |
 | Coordinador del clúster | Las instancias que quedan eligen otro con el algoritmo Bully | ~6–8 s |
-| Al volver la PC | Sus servicios regresan al reparto y su base se reincorpora como réplica (pg_rewind) | ~1 min |
+| Al volver la PC | Sus servicios regresan al reparto y su base se reincorpora como réplica (pg_rewind) | ~25 s |
 
 ## Cómo funciona el árbitro
 
@@ -100,13 +100,26 @@ python3 despliegue-nodos/nodos.py preparar inventario.yml ~/nexustix-entrega --i
 
 `launch-order.json` de cada nodo lista estos grupos.
 
+## Réplica síncrona: la regla que evita perder compras
+
+Con `replication: sync`, cada compra se confirma solo cuando la réplica síncrona
+la recibió. Por eso Patroni **solo promueve a la réplica síncrona**: es la única
+con garantía de tener todo lo confirmado.
+
+* Tras arrancar el clúster o reincorporar una PC, espere a que el Centro de
+  Control la muestre como réplica síncrona (unos 10 a 20 s) antes de probar un apagado.
+* Si se apaga la PC de la **réplica**, la principal sigue vendiendo en modo
+  asíncrono (no se bloquea) y vuelve a modo síncrono cuando la réplica regresa.
+* Si se apagan **las dos PC con datos** a la vez, ninguna promoción es segura:
+  se espera a que vuelva una de ellas.
+
 ## Probar el failover
 
 * **Con Docker en una sola máquina:** `python3 tests/ha/laboratorio_patroni.py`
   simula 2 PC + árbitro, apaga la principal, la reincorpora y la aísla de la red.
   Imprime los tiempos medidos.
 * **Con las PC reales:** apague la PC que tiene la base principal y observe el
-  Centro de Control: en unos 40 s la otra PC figura como principal y las compras
+  Centro de Control: en unos 30 s la otra PC figura como principal y las compras
   continúan. Al encenderla, vuelve como réplica.
 
 ## Resultados del laboratorio (Docker, 2 PC + árbitro simulados)
