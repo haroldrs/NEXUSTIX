@@ -366,3 +366,6 @@ telemetry.install(app, "usuarios")
 
 from shared import diagnostics
 diagnostics.install(app, get_db, require_admin)
+
+from shared import coordination
+coordination.install(app, "usuarios", require_admin)

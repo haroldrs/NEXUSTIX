@@ -56,7 +56,7 @@ async function verifyService(service, force = false) {
   const timer = setTimeout(() => controller.abort(), 4000);
   let healthy = false;
   try {
-    const response = await fetch(`${base.replace(/\/$/, "")}/health`, {signal: controller.signal});
+    const response = await fetch(routeThroughGateway(`${base.replace(/\/$/, "")}/health`), {signal: controller.signal});
     healthy = response.ok && (await response.json())?.status === "ok";
   } catch (_) { /* Sin respuesta verificable. */ } finally { clearTimeout(timer); }
   const wasDown = SERVICE_DOWN.has(service);
@@ -81,7 +81,7 @@ function renderServiceStatus() {
   clearTimeout(SERVICE_RECHECK);
   box.hidden = SERVICE_DOWN.size === 0;
   const lines = [...SERVICE_DOWN].map(service => SERVICE_MESSAGES[service]);
-  if (SERVICE_DOWN.size === serviceTargets().length) lines.push("Si esta dirección deja de responder por completo, la página no podrá avisarte: entra por otra dirección del portal indicada por la organización.");
+  if (SERVICE_DOWN.size === serviceTargets().length) lines.push(gatewayCandidates().length > 1 ? "Estamos buscando otra computadora del sistema que pueda atenderte." : "Si esta dirección deja de responder por completo, la página no podrá avisarte: entra por otra dirección del portal indicada por la organización.");
   document.getElementById("service-status-list").replaceChildren(...lines.map(text => Object.assign(document.createElement("li"), {textContent: text})));
   if (typeof updatePurchaseSummary === "function") updatePurchaseSummary();
   if (SERVICE_DOWN.size && !document.hidden) SERVICE_RECHECK = setTimeout(recheckDownServices, 60000);
@@ -91,7 +91,58 @@ function recheckDownServices() {
   [...SERVICE_DOWN].forEach(service => verifyService(service, true));
 }
 
-async function fetchJSON(url, options = {}, timeoutMs = 5000, retried = false) {
+// Failover de entrada: con varios gateways declarados (CONFIG.GATEWAYS), si la
+// computadora por la que se entró deja de responder, las solicitudes seguras
+// (lecturas o con clave de idempotencia) se reintentan en otro gateway y las
+// siguientes ya se dirigen allí. La página sigue funcionando sin recargarla.
+// Se guarda solo en memoria: el frontend no usa almacenamiento del navegador.
+let ACTIVE_GATEWAY = null;
+
+function gatewayCandidates() {
+  return Array.isArray(CONFIG.GATEWAYS) ? CONFIG.GATEWAYS.filter(host => typeof host === "string" && host) : [];
+}
+
+function routeThroughGateway(url, host = ACTIVE_GATEWAY) {
+  if (!host || host === location.hostname) return url;
+  try {
+    const target = new URL(url);
+    if (target.hostname !== location.hostname) return url;
+    target.hostname = host;
+    return target.toString();
+  } catch (_) { return url; }
+}
+
+function safeToRetry(options) {
+  const method = (options.method || "GET").toUpperCase();
+  return method === "GET" || method === "HEAD" || new Headers(options.headers || {}).has("Idempotency-Key");
+}
+
+async function fetchThroughAnotherGateway(url, options, timeoutMs, retried) {
+  const current = ACTIVE_GATEWAY || location.hostname;
+  for (const host of gatewayCandidates().filter(candidate => candidate !== current)) {
+    const previous = ACTIVE_GATEWAY;
+    ACTIVE_GATEWAY = host;
+    const result = await fetchJSON(url, options, timeoutMs, retried, true);
+    if (result.status !== 0) {
+      announceGatewaySwitch(current, host);
+      return result;
+    }
+    ACTIVE_GATEWAY = previous;
+  }
+  return null;
+}
+
+function announceGatewaySwitch(from, to) {
+  const box = document.getElementById("service-status");
+  if (!box) return;
+  box.hidden = false;
+  document.getElementById("service-status-list").replaceChildren(Object.assign(document.createElement("li"), {
+    textContent: `La computadora ${from} dejó de responder. Seguimos atendiéndote desde ${to}; no necesitas hacer nada.`}));
+}
+
+async function fetchJSON(url, options = {}, timeoutMs = 5000, retried = false, gatewayRetry = false) {
+  const originalUrl = url;
+  url = routeThroughGateway(url);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -100,7 +151,7 @@ async function fetchJSON(url, options = {}, timeoutMs = 5000, retried = false) {
     const requestToken = ACCESS_TOKEN && !headers.has("Authorization") ? ACCESS_TOKEN : null;
     if (requestToken) headers.set("Authorization", `Bearer ${requestToken}`);
     const response = await fetch(url, {...options, headers, signal: controller.signal});
-    noteServiceResponse(url, response.status);
+    noteServiceResponse(originalUrl, response.status);
     let data = null;
     try { data = await response.json(); } catch (_) { /* Respuesta sin JSON. */ }
     if (response.status === 401 && ACCESS_TOKEN && !retried && !url.includes("/auth/")) {
@@ -116,7 +167,11 @@ async function fetchJSON(url, options = {}, timeoutMs = 5000, retried = false) {
     }
     return {ok: response.ok, status: response.status, data};
   } catch (error) {
-    noteServiceResponse(url, 0);
+    if (!gatewayRetry && gatewayCandidates().length > 1 && safeToRetry(options)) {
+      const rerouted = await fetchThroughAnotherGateway(originalUrl, options, timeoutMs, retried);
+      if (rerouted) return rerouted;
+    }
+    noteServiceResponse(originalUrl, 0);
     return {ok: false, status: 0, error: error.name === "AbortError" ? "La solicitud agotó el tiempo de espera." : "No se pudo conectar con el servicio."};
   } finally { clearTimeout(timeoutId); }
 }

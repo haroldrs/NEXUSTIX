@@ -64,22 +64,27 @@ def coordination_observations():
     import requests
     from urllib.parse import urlsplit
     rows = []
-    for base, url in list(endpoints.items())[:8]:
-        parsed = urlsplit(url) if isinstance(url, str) else None
-        if not parsed or parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
-            continue
-        row = {"base": str(base)[:40], "estado": "desconocido", "miembros": []}
-        try:
-            with requests.Session() as session:
-                session.trust_env = False
-                response = session.get(url.rstrip("/") + "/cluster", timeout=(1, 2), allow_redirects=False)
-            members = response.json().get("members") if response.status_code == 200 else None
+    for base, urls in list(endpoints.items())[:8]:
+        # Cualquier miembro vivo conoce el clúster completo: se prueba en orden.
+        row = {"base": str(base)[:40], "estado": "desconocido", "miembros": [], "lider": None, "consultado": None}
+        for url in ([urls] if isinstance(urls, str) else urls if isinstance(urls, list) else [])[:8]:
+            parsed = urlsplit(url) if isinstance(url, str) else None
+            if not parsed or parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+                continue
+            try:
+                with requests.Session() as session:
+                    session.trust_env = False
+                    response = session.get(url.rstrip("/") + "/cluster", timeout=(1, 2), allow_redirects=False)
+                members = response.json().get("members") if response.status_code == 200 else None
+            except (requests.RequestException, ValueError, AttributeError):
+                continue
             if isinstance(members, list):
-                row["miembros"] = [{key: member.get(key) for key in ("name", "role", "state", "timeline") if isinstance(member.get(key), (str, int))}
+                row["miembros"] = [{key: member.get(key) for key in ("name", "role", "state", "timeline", "host", "lag") if isinstance(member.get(key), (str, int))}
                     for member in members[:16] if isinstance(member, dict)]
+                row["lider"] = next((member["name"] for member in row["miembros"] if member.get("role") == "leader"), None)
                 row["estado"] = "observado"
-        except (requests.RequestException, ValueError, AttributeError):
-            pass
+                row["consultado"] = parsed.hostname
+                break
         rows.append(row)
     return rows
 
@@ -95,6 +100,8 @@ def coordinator(document=None):
     survives = len(voters) - worst >= majority if voters else None
     observed = coordination_observations() if document else []
     seen = any(row["estado"] == "observado" for row in observed)
+    active = bool(plan) and plan.get("mode") == "patroni"
+    leaders_ok = seen and all(row["lider"] for row in observed if row["estado"] == "observado")
     databases = document["databases"].items() if document else []
     standbys_ok = bool(databases) and all(any(domains.get(node) != domains.get(db["primary"]) for node in db["standbys"]) for _, db in databases)
     gateways = {node.get("failure_domain") for node in nodes if "gateway" in node.get("roles", [])}
@@ -108,7 +115,9 @@ def coordinator(document=None):
         need("Votantes de consenso declarados", "cumplido" if voters else "no_configurado", f"{len(voters)} votantes en el plan." if voters else "Sin plan de coordinación en el inventario."),
         need("Mayoría tras perder un dominio", "no_configurado" if not voters else "cumplido" if survives else "pendiente", "Cálculo sobre la declaración; no acredita conectividad."),
         need("Coordinador desplegado y observado", "cumplido" if seen else "no_configurado", "Respuesta real de Patroni, sin quórum de etcd verificado." if seen else "Coordinador no instalado."),
-        need("Fencing verificable del escritor anterior", "pendiente", "Sin mecanismo independiente comprobado. Bloquea cualquier promoción automática."),
+        need("Fencing verificable del escritor anterior", "cumplido" if active and seen else "pendiente",
+             "Patroni degrada a solo lectura la principal que pierde la mayoría de votantes antes de que otra sea promovida." if active
+             else "Sin mecanismo independiente comprobado. Bloquea cualquier promoción automática."),
         need("Standby en otro dominio para cada base", "cumplido" if standbys_ok else "pendiente", "Según el inventario; no garantiza que conserve todos los commits."),
         need("Gateways en dos o más dominios", "cumplido" if len(gateways) >= 2 else "pendiente", f"{len(gateways)} dominios con gateway declarados."),
         need("Acceso estable verificado", "no_verificable" if access.get("mode") not in {None, "manual"} else "no_configurado", "La infraestructura externa no se comprueba desde aquí." if access.get("mode") not in {None, "manual"} else "Acceso manual por direcciones alternativas."),
@@ -116,6 +125,16 @@ def coordinator(document=None):
     ]
     if not document:
         requirements = []  # Sin inventario no hay nada que evaluar.
+    if active:
+        return {"configurado": seen, "estado": "activo" if leaders_ok else "activo_sin_lider" if seen else "sin_respuesta",
+            "modo": "patroni", "quorum_observado": leaders_ok, "promocion_automatica": True, "failover_bloqueado": False,
+            "ha_operativa": leaders_ok,
+            "mensaje": None if leaders_ok else "Patroni no informa una base principal en todas las bases: revise votantes etcd y miembros.",
+            "votantes_declarados": [{"nodo": voter, "dominio": domains[voter]} for voter in voters], "mayoria_requerida": majority,
+            "conserva_mayoria_tras_perder_dominio": survives, "observaciones": observed, "requisitos": requirements,
+            "motivos": [f"Cada base tiene una principal elegida por mayoría ({majority} de {len(voters)} votantes etcd).",
+                "Si la principal deja de renovar su llave durante 30 s, se promueve la réplica más actualizada.",
+                "Al volver, el nodo anterior se reincorpora como réplica con pg_rewind."]}
     return {"configurado": seen, "estado": "observado" if seen else "preparado_inactivo" if plan else "no_configurado", "quorum_observado": None,
         "promocion_automatica": False, "failover_bloqueado": True, "ha_operativa": False,
         "mensaje": None if plan or seen else "Coordinador no instalado. Failover PostgreSQL automático no disponible.",

@@ -119,8 +119,8 @@ def load_inventory():
             "verified": False, "automatic_switch_verified": False}
         plan = data.get("coordination_plan")
         known = {n["id"] for n in nodes}
-        if isinstance(plan, dict) and plan.get("mode") == "prepared_inactive" and isinstance(plan.get("voters"), list):
-            document["coordination_plan"] = {"mode": "prepared_inactive", "voters": [v for v in plan["voters"] if v in known][:5]}
+        if isinstance(plan, dict) and plan.get("mode") in {"prepared_inactive", "patroni"} and isinstance(plan.get("voters"), list):
+            document["coordination_plan"] = {"mode": plan["mode"], "voters": [v for v in plan["voters"] if v in known][:5]}
         # Se reconstruyen las URL desde los destinos validados, nunca se reenvían
         # campos arbitrarios de access_points ni secretos del documento original.
         document["access_points"] = [{"node": n["id"], "url": base_url(n, ports["public"]),

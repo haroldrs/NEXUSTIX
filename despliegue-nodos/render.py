@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import json
 
-from inventory import DOMAINS, PORTS, SERVICE_RESOURCES, inventory_fingerprint, replica_id, stable_access, topology_document
+import yaml
+
+from inventory import (DOMAINS, PORTS, SERVICE_RESOURCES, coordination_voters, inventory_fingerprint, patroni_enabled,
+                       replica_id, stable_access, topology_document)
+
+ETCD_IMAGE = "gcr.io/etcd-development/etcd:v3.5.17"
 
 INTERNAL_PORTS = {"frontend": 80, "usuarios": 8001, "eventos": 8002, "compras": 8003}
 SECRET_FILES = {
@@ -75,6 +80,102 @@ def haproxy_config(inventory, node, public):
     return "\n".join(rows) + "\n"
 
 
+def etcd_cluster(inventory):
+    """Lista "nombre=url" de los votantes; igual en todos los nodos."""
+    nodes = {entry["id"]: entry for entry in inventory["nodes"]}
+    peer = inventory["ports"]["etcd_peer"]
+    return ",".join(f"{voter}=http://{nodes[voter]['address']}:{peer}" for voter in coordination_voters(inventory))
+
+
+def etcd_hosts(inventory, node):
+    """El votante local se alcanza por DNS Docker (evita el hairpin de Windows)."""
+    nodes = {entry["id"]: entry for entry in inventory["nodes"]}
+    client = inventory["ports"]["etcd_client"]
+    return [f"etcd:{client}" if voter == node["id"] else f"{nodes[voter]['address']}:{client}"
+            for voter in coordination_voters(inventory)]
+
+
+def patroni_scope(inventory, domain):
+    return f"nexustix-{inventory['deployment']}-{domain}"
+
+
+def pg_allowed_cidrs(inventory, node):
+    return list(dict.fromkeys([*(f"{item['address']}/32" for item in inventory["nodes"]), node["docker_subnet"],
+                               *node.get("postgres_client_cidrs", [])]))
+
+
+def patroni_config(inventory, node, domain):
+    """Configuración Patroni de una base en un nodo.
+
+    PostgreSQL y la API REST escuchan dentro del contenedor en el mismo puerto
+    que publican, así la dirección anunciada sirve igual desde otros nodos.
+    """
+    ports = inventory["ports"]
+    database = inventory["databases"][domain]
+    pg_port, rest_port = ports[f"{domain}_db"], ports[f"{domain}_patroni"]
+    sync = database["replication"] == "sync"
+    hba = ["local all all scram-sha-256", "host all all 127.0.0.1/32 scram-sha-256",
+           "host replication replicator 127.0.0.1/32 scram-sha-256"]
+    for cidr in pg_allowed_cidrs(inventory, node):
+        hba += [f"host replication replicator {cidr} scram-sha-256", f"host all all {cidr} scram-sha-256"]
+    return {
+        "scope": patroni_scope(inventory, domain),
+        "name": replica_id(domain, node["id"]),
+        "restapi": {"listen": f"0.0.0.0:{rest_port}", "connect_address": f"{node['address']}:{rest_port}"},
+        "etcd3": {"hosts": etcd_hosts(inventory, node), "protocol": "http"},
+        "bootstrap": {
+            "dcs": {
+                # La principal renueva su "llave" cada loop_wait; si deja de hacerlo
+                # durante ttl segundos, la mayoría de votantes permite promover otra.
+                "ttl": 30, "loop_wait": 10, "retry_timeout": 10,
+                "maximum_lag_on_failover": 16 * 1024 * 1024,
+                "synchronous_mode": sync,
+                # No estricto: si no queda réplica, la principal sigue vendiendo en
+                # modo asíncrono en vez de bloquear cada compra.
+                "synchronous_mode_strict": False,
+                "synchronous_node_count": max(1, database["sync_quorum"]),
+                "postgresql": {
+                    "use_pg_rewind": True, "use_slots": True,
+                    "parameters": {"wal_level": "replica", "hot_standby": "on", "wal_log_hints": "on",
+                                   "max_wal_senders": 10, "max_replication_slots": 10, "wal_keep_size": "512MB",
+                                   "max_connections": 100, "password_encryption": "scram-sha-256"},
+                },
+            },
+            "initdb": [{"encoding": "UTF8"}, "data-checksums", {"auth-host": "scram-sha-256"}, {"auth-local": "scram-sha-256"}],
+            "post_bootstrap": "/usr/local/bin/nexustix-post-bootstrap",
+        },
+        "postgresql": {
+            "listen": f"0.0.0.0:{pg_port}", "connect_address": f"{node['address']}:{pg_port}",
+            "data_dir": "/var/lib/postgresql/data/pgdata", "bin_dir": "/usr/lib/postgresql/15/bin",
+            "pgpass": "/tmp/pgpass", "pg_hba": hba,
+            # Checkpoint inmediato: una réplica nueva se clona en segundos, no en minutos.
+            "basebackup": [{"checkpoint": "fast"}],
+            "authentication": {"superuser": {"username": "postgres"}, "replication": {"username": "replicator"},
+                               "rewind": {"username": "postgres"}},
+            "parameters": {"unix_socket_directories": "/run/postgresql"},
+        },
+        "tags": {"nofailover": False, "noloadbalance": False, "clonefrom": False, "nosync": False},
+    }
+
+
+def coordination_peers(inventory, current):
+    """Miembros del directorio y de la elección Bully: todas las APIs del clúster.
+
+    La prioridad sigue el orden del inventario (el primer nodo es el preferido
+    como coordinador), así se ve el relevo cuando cae la PC principal.
+    """
+    peers, total = [], len(inventory["nodes"])
+    for index, node in enumerate(inventory["nodes"]):
+        for rank, domain in enumerate(DOMAINS):
+            if domain not in node["roles"]:
+                continue
+            url = (f"http://{domain}:{INTERNAL_PORTS[domain]}" if node["id"] == current["id"]
+                   else f"http://{node['address']}:{inventory['ports'][f'{domain}_backend']}")
+            peers.append({"id": f"{domain}_{node['id']}", "servicio": domain, "nodo": node["id"], "url": url,
+                          "prioridad": (total - index) * 10 + rank})
+    return peers
+
+
 def frontend_config(inventory, installation_id=None):
     ports = inventory["ports"]
     return (
@@ -91,6 +192,7 @@ def frontend_config(inventory, installation_id=None):
         f"  INSTALLATION_ID: {json.dumps(installation_id)},\n"
         f"  RELEASE: {json.dumps(inventory['release'])},\n"
         f"  NODE_COUNT: {len(inventory['nodes'])},\n"
+        f"  GATEWAYS: {json.dumps([item['address'] for item in inventory['nodes'] if 'gateway' in item['roles']])},\n"
         "  CHECKOUT_ORDERS: true,\n"
         "  ...(window.NEXUSTIX_CONFIG || {}),\n"
         "});\n"
@@ -200,6 +302,15 @@ def render_node(inventory, node, source_root, installation_id=None):
         if domain == "compras":
             env.update({"PURCHASE_RECOVERY_INTERVAL_SECONDS": "10", "PURCHASE_RECOVERY_AUTO_RELEASE": "0",
                         "PUBLIC_PORTAL_URL": stable.get("url") or (origins[0] if origins else "")})
+        env["NEXUSTIX_PEERS"] = json.dumps(coordination_peers(inventory, node), separators=(",", ":"))
+        if patroni_enabled(inventory):
+            endpoints = {}
+            for base, database in inventory["databases"].items():
+                members = [database["primary"], *database["standbys"]]
+                rest = ports[f"{base}_patroni"]
+                endpoints[base] = [f"http://{base}_db:{rest}" if member == node["id"] else f"http://{nodes[member]['address']}:{rest}"
+                                   for member in sorted(members, key=lambda member: member != node["id"])]
+            env["NEXUSTIX_COORDINATION_ENDPOINTS"] = json.dumps(endpoints)
         config["environment"] = env
         attach_secrets(config, credentials)
         config["ports"] = [f"{bind_ip}:{ports[f'{domain}_backend']}:{INTERNAL_PORTS[domain]}"]
@@ -208,8 +319,54 @@ def render_node(inventory, node, source_root, installation_id=None):
         config["depends_on"] = {"router": {"condition": "service_started"}}
         compose["services"][domain] = config
 
+    if node["id"] in coordination_voters(inventory):
+        etcd = service("etcd")
+        client, peer = ports["etcd_client"], ports["etcd_peer"]
+        etcd["image"] = ETCD_IMAGE
+        etcd["command"] = [
+            "etcd", f"--name={node['id']}", "--data-dir=/etcd-data",
+            f"--listen-client-urls=http://0.0.0.0:{client}", f"--advertise-client-urls=http://{node['address']}:{client}",
+            f"--listen-peer-urls=http://0.0.0.0:{peer}", f"--initial-advertise-peer-urls=http://{node['address']}:{peer}",
+            f"--initial-cluster={etcd_cluster(inventory)}", f"--initial-cluster-token={patroni_scope(inventory, 'etcd')}",
+            "--initial-cluster-state=new", "--heartbeat-interval=250", "--election-timeout=2500",
+        ]
+        etcd["ports"] = [f"{bind_ip}:{client}:{client}", f"{bind_ip}:{peer}:{peer}"]
+        compose["volumes"]["etcd_data"] = {"name": f"{project}-etcd-data", "labels": dict(labels)}
+        etcd["volumes"] = ["etcd_data:/etcd-data"]
+        etcd["healthcheck"] = {"test": ["CMD", "etcdctl", f"--endpoints=http://127.0.0.1:{client}", "endpoint", "health"],
+                               "interval": "5s", "timeout": "4s", "retries": 12}
+        compose["services"]["etcd"] = etcd
+
     for domain, database in inventory["databases"].items():
         if node["id"] not in [database["primary"], *database["standbys"]]:
+            continue
+        if patroni_enabled(inventory):
+            is_primary = node["id"] == database["primary"]
+            pg_port, rest_port = ports[f"{domain}_db"], ports[f"{domain}_patroni"]
+            config = service("postgres")
+            build(config, "patroni", "despliegue-nodos/patroni/Dockerfile")
+            config["environment"] = {
+                "NEXUSTIX_PG_ROLE": "primary" if is_primary else "standby",
+                "NEXUSTIX_PG_DATABASE": f"{domain}_db", "NEXUSTIX_PATRONI_PORT": str(rest_port),
+                "NEXUSTIX_PATRONI_PREFERRED": "1" if is_primary else "0",
+                "NEXUSTIX_PATRONI_PREFERRED_URL": f"http://{nodes[database['primary']]['address']}:{rest_port}",
+                "NEXUSTIX_PG_ADMIN_PASSWORD_FILE": f"/run/secrets/{domain}_admin_password",
+                "NEXUSTIX_PG_APP_PASSWORD_FILE": f"/run/secrets/{domain}_db_password",
+                "NEXUSTIX_PG_REPLICATION_PASSWORD_FILE": f"/run/secrets/{domain}_replication_password",
+            }
+            attach_secrets(config, [f"{domain}_admin_password", f"{domain}_db_password", f"{domain}_replication_password"])
+            files[f"config/patroni-{domain}.yml"] = yaml.safe_dump(patroni_config(inventory, node, domain), sort_keys=False)
+            generation = database["generations"][node["id"]]
+            volume = f"{domain}_patroni_g{generation}"
+            compose["volumes"][volume] = {"name": f"{project}-{volume}", "labels": dict(labels)}
+            config["volumes"] = [f"{volume}:/var/lib/postgresql/data",
+                                 f"./config/patroni-{domain}.yml:/etc/nexustix/patroni.yml:ro,z"]
+            config["ports"] = [f"{bind_ip}:{pg_port}:{pg_port}", f"{bind_ip}:{rest_port}:{rest_port}"]
+            config["healthcheck"] = {"test": ["CMD", "nexustix-patroni-health"], "interval": "5s",
+                                     "timeout": "5s", "retries": 24, "start_period": "60s"}
+            if "etcd" in compose["services"]:
+                config["depends_on"] = {"etcd": {"condition": "service_started"}}
+            compose["services"][f"{domain}_db"] = config
             continue
         primary = nodes[database["primary"]]
         is_primary = node["id"] == database["primary"]

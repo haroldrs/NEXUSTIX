@@ -90,6 +90,10 @@ class EventsClient:
                 request_headers = dict(headers or service_auth_headers())
                 if correlation_id.get():
                     request_headers["X-Correlation-ID"] = correlation_id.get()
+                # Relojes de Lamport y vectorial viajan con cada paso de la Saga.
+                from shared import coordination
+                if coordination.current():
+                    request_headers.update(coordination.current().outgoing(f"envía {method} {path.split('?')[0]}", correlation_id.get()))
                 response = requests.request(method, self.url + path, params=params,
                     headers=request_headers, timeout=(2, 5), allow_redirects=False)
                 if 200 <= response.status_code < 500:
@@ -140,9 +144,12 @@ class Coordinator:
     def event(self, db, order, kind):
         key = f"{order.id}:{kind}"
         if not db.query(self.m.Outbox).filter_by(dedupe=key).first():
+            from shared import coordination
+            clock = coordination.current().record(f"pedido {kind}", correlation=correlation_id.get(), kind="saga") if coordination.current() else None
             db.add(self.m.Outbox(orden_id=order.id, tipo=kind, dedupe=key,
                 datos={"estado": order.estado, "total_centimos": order.total_centimos,
-                       "correlation_id": correlation_id.get(), "instancia": self.instance}))
+                       "correlation_id": correlation_id.get(), "instancia": self.instance,
+                       "nodo": os.getenv("NEXUSTIX_NODE_ID"), "lamport": clock["lamport"] if clock else None}))
 
     def state(self, db, order, state):
         order.estado = state
@@ -846,6 +853,25 @@ def install(app, models, sessions, get_db, get_principal, require_admin, events_
             raise HTTPException(404, "Pedido no encontrado")
         coordinator.authorize(order, principal)
         return coordinator.snapshot(db, order)
+
+    TRACK_LABELS = {"reservando": "Pedido creado: reservando asientos", "reservada": "Asientos apartados",
+                    "pagada": "Pago aprobado", "emitiendo": "Confirmando la reserva y emitiendo entradas",
+                    "completada": "Entradas emitidas", "cancelada": "Pedido cancelado", "reembolsando": "Reembolso en curso",
+                    "reembolsada": "Reembolso completado", "pago_rechazado": "Pago rechazado"}
+
+    @app.get("/ordenes/{order_id}/seguimiento")
+    def track(order_id: str, db=Depends(get_db), principal=Depends(get_principal)):
+        """Recorrido visible del pedido: qué paso, cuándo y qué instancia lo atendió."""
+        order = db.get(models.Orden, order_id)
+        if not order:
+            raise HTTPException(404, "Pedido no encontrado")
+        coordinator.authorize(order, principal)
+        rows = db.query(models.Outbox).filter_by(orden_id=order.id).order_by(models.Outbox.id).limit(50).all()
+        return {"orden_id": order.id, "estado": order.estado, "pasos": [{
+            "paso": row.tipo, "descripcion": TRACK_LABELS.get(row.tipo, row.tipo.replace("_", " ").capitalize()),
+            "momento": row.creado_en.isoformat() if row.creado_en else None,
+            "instancia": (row.datos or {}).get("instancia"), "nodo": (row.datos or {}).get("nodo"),
+            "lamport": (row.datos or {}).get("lamport")} for row in rows]}
 
     @app.post("/ordenes/{order_id}/pagar")
     def pay(order_id: str, data: PaymentRequest, db=Depends(get_db), principal=Depends(get_principal)):

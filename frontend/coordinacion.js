@@ -22,6 +22,12 @@ const HA_SCENARIOS = [
 
 function haCoordinationChips(coordinator) {
   const chips = [];
+  if (coordinator.modo === "patroni") {
+    chips.push([coordinator.ha_operativa ? "Failover automático activo" : "Failover automático sin líder confirmado", !coordinator.ha_operativa]);
+    if (coordinator.mayoria_requerida) chips.push([`Mayoría requerida: ${coordinator.mayoria_requerida} de ${adminList(coordinator.votantes_declarados).length} votantes`, false]);
+    adminList(coordinator.observaciones).forEach(row => chips.push([`${row.base}: principal ${row.lider || "sin líder"}`, !row.lider]));
+    return `<div class="ha-chips">${chips.map(([text, block]) => `<span class="${block ? "is-block" : ""}">${adminText(text)}</span>`).join("")}</div>`;
+  }
   if (coordinator.estado === "no_configurado") chips.push(["Coordinación no configurada", false]);
   if (coordinator.mayoria_requerida) chips.push([`Quórum declarado: mayoría de ${coordinator.mayoria_requerida} sobre ${adminList(coordinator.votantes_declarados).length} votantes`, false]);
   chips.push([coordinator.quorum_observado == null ? "Quórum observado: desconocido" : `Quórum observado: ${coordinator.quorum_observado}`, false]);
@@ -34,8 +40,8 @@ function renderHaStatus(cluster, coordinator, source) {
   const profile = source?.profile || CONFIG.DEPLOYMENT_PROFILE;
   const nodes = adminList(cluster?.nodos);
   const domains = [...new Set(nodes.map(node => node.failure_domain).filter(Boolean))];
-  const facts = [["Perfil de despliegue", HA_PROFILES[profile] || "No informado"], ["Computadoras", nodes.map(node => node.id).join(" · ") || "Sin inventario multinodo"], ["Dominios físicos", domains.join(" · ") || "No declarados"], ["Replicación existente", bases.length ? `${bases.filter(row => adminList(row.standbys).length).length} de ${bases.length} bases con standby` : "No determinable"], ["Recuperación manual", "Documentada en RECUPERACION.md"], ["Coordinador", coordinator.mensaje || (coordinator.estado === "preparado_inactivo" ? "Plan declarado, inactivo" : coordinator.estado === "observado" ? "Patroni observado" : "Estado desconocido")], ["Votantes declarados", adminList(coordinator.votantes_declarados).map(row => `${row.nodo} (${row.dominio})`).join(" · ") || "Ninguno"], ["Mayoría tras perder un dominio", coordinator.conserva_mayoria_tras_perder_dominio == null ? "No configurado" : coordinator.conserva_mayoria_tras_perder_dominio ? "Se conservaría, según la declaración" : "No se conservaría"], ["Recuperación automática", "No disponible"], ["Alta disponibilidad operativa", "No observada"]];
-  adminNode("ha-status").innerHTML = `${haCoordinationChips(coordinator)}${adminFacts(facts)}${adminList(coordinator.motivos).length ? `<h4>Por qué no se autoriza una promoción</h4><ul class="pg-steps">${adminList(coordinator.motivos).map(reason => `<li>${adminText(reason)}</li>`).join("")}</ul>` : ""}${nodes.length === 1 ? `<p class="notice notice-warning">${adminText(RES_LOCAL_NODE_LIMIT)}</p>` : ""}`;
+  const facts = [["Perfil de despliegue", HA_PROFILES[profile] || "No informado"], ["Computadoras", nodes.map(node => node.id).join(" · ") || "Sin inventario multinodo"], ["Dominios físicos", domains.join(" · ") || "No declarados"], ["Replicación existente", bases.length ? `${bases.filter(row => adminList(row.standbys).length).length} de ${bases.length} bases con standby` : "No determinable"], ["Recuperación manual", "Documentada en RECUPERACION.md"], ["Coordinador", coordinator.mensaje || (coordinator.estado === "preparado_inactivo" ? "Plan declarado, inactivo" : coordinator.estado === "observado" ? "Patroni observado" : "Estado desconocido")], ["Votantes declarados", adminList(coordinator.votantes_declarados).map(row => `${row.nodo} (${row.dominio})`).join(" · ") || "Ninguno"], ["Mayoría tras perder un dominio", coordinator.conserva_mayoria_tras_perder_dominio == null ? "No configurado" : coordinator.conserva_mayoria_tras_perder_dominio ? "Se conservaría, según la declaración" : "No se conservaría"], ["Recuperación automática", coordinator.modo === "patroni" ? "Patroni + etcd: promoción por mayoría de votantes" : "No disponible"], ["Alta disponibilidad operativa", coordinator.ha_operativa ? "Sí: cada base tiene una principal elegida" : "No observada"]];
+  adminNode("ha-status").innerHTML = `${haCoordinationChips(coordinator)}${adminFacts(facts)}${adminList(coordinator.motivos).length ? `<h4>${coordinator.modo === "patroni" ? "Cómo se elige la base principal" : "Por qué no se autoriza una promoción"}</h4><ul class="pg-steps">${adminList(coordinator.motivos).map(reason => `<li>${adminText(reason)}</li>`).join("")}</ul>` : ""}${nodes.length === 1 ? `<p class="notice notice-warning">${adminText(RES_LOCAL_NODE_LIMIT)}</p>` : ""}`;
 }
 
 function renderHaAccess(cluster, source) {
@@ -67,7 +73,7 @@ function renderHaPanels() {
   const coordinator = cluster.coordinador || {};
   renderHaStatus(cluster, coordinator, source);
   adminNode("ha-requirements").innerHTML = adminTable(adminList(coordinator.requisitos), [["Requisito", "requisito"], ["Estado", row => HA_REQUIREMENT_STATES[row.estado] || row.estado], ["Detalle", "detalle"]], "Sin inventario multinodo: no se evalúan requisitos de alta disponibilidad.");
-  adminNode("ha-bases").innerHTML = adminTable(adminList(cluster.bases), [["Base", "base"], ["Primaria configurada", "primario_configurado"], ["Primaria observada", row => row.primario_observado?.nodo || "Sin evidencia"], ["Standbys", row => adminList(row.standbys).map(item => item.nodo).join(" · ") || "Ninguna"], ["Escritor", row => row.escritura?.estado || "No comprobado"], ["Si se pierde la primaria", () => "Recuperación manual requerida"]], "Sin bases en el inventario.");
+  adminNode("ha-bases").innerHTML = adminTable(adminList(cluster.bases), [["Base", "base"], ["Primaria configurada", "primario_configurado"], ["Primaria observada", row => row.primario_observado?.nodo || "Sin evidencia"], ["Standbys", row => adminList(row.standbys).map(item => item.nodo).join(" · ") || "Ninguna"], ["Escritor", row => row.escritura?.estado || "No comprobado"], ["Si se pierde la primaria", () => coordinator.modo === "patroni" ? "Promoción automática de la réplica más actualizada" : "Recuperación manual requerida"]], "Sin bases en el inventario.");
   renderHaAccess(cluster, source);
 }
 

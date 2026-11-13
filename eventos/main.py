@@ -576,3 +576,6 @@ def liberar_entradas(
 
 from shared import diagnostics
 diagnostics.install(app, get_db, require_admin)
+
+from shared import coordination
+coordination.install(app, "eventos", require_admin)

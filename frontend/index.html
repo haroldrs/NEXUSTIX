@@ -137,6 +137,7 @@
           <button data-admin-section="refunds">Reembolsos</button><button data-admin-section="users">Usuarios y roles</button>
           <span class="admin-nav-label">SISTEMAS DISTRIBUIDOS</span>
           <button data-admin-section="cluster">Centro de Control del Clúster</button>
+          <button data-admin-section="coordination">Coordinación distribuida</button>
           <button data-admin-section="services">Microservicios y salud</button><button data-admin-section="databases">PostgreSQL y persistencia</button><button data-admin-section="consistency">Consistencia y snapshots</button><button data-admin-section="security">Seguridad e implantación</button>
           <button data-admin-section="observability">Observabilidad</button><button data-admin-section="lab">Laboratorio de Resiliencia</button>
           <button data-admin-section="incidents">Historial de incidentes</button><button data-admin-section="evidence">Evidencias de demostración</button>
@@ -209,6 +210,23 @@
             <article class="workspace-card"><h3>Descubrimiento e incorporación</h3><p class="field-help">Un anuncio identifica un candidato. Su autorización y posterior incorporación requieren el procedimiento administrativo; aparecer aquí no le concede acceso al despliegue.</p><form id="cluster-announcement-form" class="admin-form"><label>Anuncio firmado del equipo · JSON, máximo 16 KiB<input id="cluster-announcement-file" type="file" accept="application/json,.json" required></label><button type="submit" class="button button-outline">Presentar candidato para revisión</button><p id="cluster-announcement-status" role="status"></p></form><div id="cluster-discovery"></div></article>
             <article class="workspace-card"><h3>Cambios de estado observados</h3><p id="cluster-history-scope" class="field-help">Sin observaciones disponibles.</p><div id="cluster-history" class="admin-timeline"></div></article>
             <article class="workspace-card"><h3>Resiliencia y alcance</h3><div id="cluster-limitations"></div><button type="button" class="button button-outline" data-admin-section="lab">Abrir Laboratorio de Resiliencia</button></article>
+          </section>
+          <section class="admin-panel" data-admin-panel="coordination" hidden aria-labelledby="coordination-title">
+            <div class="section-heading"><div><p class="eyebrow">NOMBRES · SINCRONIZACIÓN · ELECCIÓN DE LÍDER</p><h2 id="coordination-title">Coordinación distribuida</h2></div><button class="button button-outline" id="coord-refresh">Actualizar</button></div>
+            <p class="field-help">Cada instancia de Usuarios, Eventos y Compras, en cualquier computadora, mantiene una copia de este directorio, late cada pocos segundos y participa en la elección del coordinador. La vista se actualiza sola cada 5 segundos.</p>
+            <div id="coord-notice" class="notice" hidden></div>
+            <div class="workspace-grid">
+              <article class="workspace-card"><h3>Coordinador del clúster</h3><div id="coord-leader">Sin consultar.</div><div class="snap-modes"><button type="button" class="button button-outline" id="coord-election">Convocar elección</button><button type="button" class="button button-outline" id="coord-sync">Sincronizar relojes</button></div><p class="field-help">Algoritmo del matón (Bully): gana la instancia con mayor prioridad que responda. Si el coordinador deja de latir, otra convoca elección.</p></article>
+              <article class="workspace-card"><h3>Detección por latidos</h3><div id="coord-params">Sin consultar.</div><p class="field-help">Viva: latido dentro de T + Δ. Sospechosa: sin latido reciente. Caída: superó el plazo máximo.</p></article>
+            </div>
+            <article class="workspace-card"><h3>Servicio de nombres: directorio de instancias</h3><p class="field-help">Nombre → dirección, con su estado. "Simular caída" hace que esa instancia deje de latir y de responder elecciones, sin detener el servicio de compras.</p><div id="coord-directory" class="table-scroll">Sin consultar.</div>
+              <form id="coord-resolve-form" class="inline-form"><label>Resolver un nombre de servicio<select id="coord-resolve-service"><option value="usuarios">usuarios</option><option value="eventos">eventos</option><option value="compras">compras</option></select></label><button class="button button-outline">Resolver</button></form><div id="coord-resolve-result"></div></article>
+            <div class="workspace-grid">
+              <article class="workspace-card"><h3>Relojes físicos: Cristian</h3><div id="coord-cristian">Sin consultar.</div><p class="field-help">Cada instancia pregunta la hora al coordinador, mide el tiempo de ida y vuelta (RTT) y estima: hora = hora recibida + RTT / 2.</p></article>
+              <article class="workspace-card"><h3>Relojes físicos: Berkeley</h3><div id="coord-berkeley">Sin consultar.</div><p class="field-help">El coordinador sondea los relojes, calcula el promedio y envía a cada instancia su ajuste. El ajuste es lógico: no cambia la hora del sistema operativo.</p></article>
+            </div>
+            <article class="workspace-card"><h3>Relojes lógicos: Lamport y vectorial</h3><p class="field-help">Cada mensaje entre servicios (por ejemplo, Compras pidiendo una reserva a Eventos) lleva ambos relojes. Marca dos eventos para saber si uno causó al otro o si fueron concurrentes.</p><div id="coord-compare" class="notice" hidden></div><div id="coord-events" class="table-scroll">Sin consultar.</div></article>
+            <article class="workspace-card"><h3>Historial de elecciones y cambios</h3><div id="coord-history" class="admin-timeline">Sin consultar.</div></article>
           </section>
           <section class="admin-panel" data-admin-panel="services" hidden aria-labelledby="admin-services-title">
             <div class="section-heading"><div><p class="eyebrow">ARQUITECTURA REAL</p><h2 id="admin-services-title">Microservicios y salud</h2></div><button class="button button-outline" id="admin-refresh-services">Consultar estado</button></div>
@@ -286,6 +304,7 @@
   <script src="resiliencia.js"></script>
   <script src="laboratorio.js"></script>
   <script src="coordinacion.js"></script>
+  <script src="distribuido.js"></script>
   <script src="seguridad.js"></script>
   <script src="academico.js"></script>
   <script src="acceso.js"></script>

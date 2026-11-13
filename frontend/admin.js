@@ -63,6 +63,7 @@ async function adminBusy(button, operation) {
 
 function clearAdminWorkspace() {
   stopClusterPolling();
+  if (typeof stopCoordinationPolling === "function") stopCoordinationPolling();
   clearInsights();
   ADMIN_GENERATION += 1;
   ADMIN_CLUSTER = null; ADMIN_DEPLOYMENT_OBSERVATION = null; ADMIN_CLUSTER_SELECTED = null; ADMIN_CLUSTER_STALE = true; ADMIN_CLUSTER_BASE = null; ADMIN_CLUSTER_EVENTS.clear(); ADMIN_CLUSTER_CANDIDATES.clear(); ADMIN_CLUSTER_LAST_NODES.clear();
@@ -98,7 +99,8 @@ function openAdminSection(section = "summary") {
   });
   document.querySelectorAll("[data-admin-panel]").forEach(panel => { panel.hidden = panel.dataset.adminPanel !== section; });
   adminNode("admin-session-note").textContent = "Sesión administradora · acceso verificado por cada servicio";
-  const loaders = {summary: loadAdminSummary, events: loadAdminEvents, sales: loadAdminSales, refunds: loadAdminRefunds, users: loadAdminUsers, cluster: refreshAdminCluster, services: refreshAdminSnapshot, databases: refreshAdminSnapshot, consistency: refreshAdminSnapshot, security: loadSecurityPanel, academic: loadAcademicPanel, observability: refreshObservability, lab: refreshLab, incidents: loadAdminIncidents, evidence: loadAdminEvidence};
+  const loaders = {summary: loadAdminSummary, events: loadAdminEvents, sales: loadAdminSales, refunds: loadAdminRefunds, users: loadAdminUsers, cluster: refreshAdminCluster, services: refreshAdminSnapshot, databases: refreshAdminSnapshot, consistency: refreshAdminSnapshot, security: loadSecurityPanel, academic: loadAcademicPanel, observability: refreshObservability, lab: refreshLab, incidents: loadAdminIncidents, evidence: loadAdminEvidence, coordination: loadCoordinationPanel};
+  if (section !== "coordination") stopCoordinationPolling();
   loaders[section]?.();
 }
 

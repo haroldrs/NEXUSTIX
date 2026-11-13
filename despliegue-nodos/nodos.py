@@ -52,7 +52,8 @@ def database_url(inventory, node, domain, password):
     candidates = []
     for member in [database["primary"], *database["standbys"]]:
         # El acceso local por DNS Docker evita depender del hairpin de Windows.
-        address = (f"{domain}_db:5432" if member == node["id"] else
+        local_port = inventory["ports"][domain + "_db"] if inventory.get("coordination", {}).get("mode") == "patroni" else 5432
+        address = (f"{domain}_db:{local_port}" if member == node["id"] else
                    f"{nodes[member]['address']}:{inventory['ports'][domain + '_db']}")
         candidates.append("host=" + address)
     return (f"postgresql://nexustix_app:{quote(password, safe='')}@/{domain}_db?"
@@ -118,7 +119,7 @@ def compare_inventories(previous, current, acknowledged):
     return changes
 
 
-def prepare(inventory_path, destination, source_root, previous_path=None, acknowledged=()):
+def prepare(inventory_path, destination, source_root, previous_path=None, acknowledged=(), offline_images=False):
     inventory, inventory_source = load_inventory(inventory_path, with_source=True)
     source_root = Path(source_root).expanduser().resolve()
     for filename in ("usuarios/Dockerfile", "eventos/Dockerfile", "compras/Dockerfile", "frontend/Dockerfile", "despliegue-nodos/postgres/Dockerfile"):
@@ -196,16 +197,20 @@ def prepare(inventory_path, destination, source_root, previous_path=None, acknow
             (folder / "secrets").mkdir(mode=0o700)
             compose = rendered["compose"]
             # Guía declarativa; no es un script y no inicia nada.
-            launch_order = {"primary": [], "standby": [], "applications": []}
+            launch_order = {"coordination": [], "primary": [], "standby": [], "applications": []}
             for name, specification in compose["services"].items():
                 role = specification.get("environment", {}).get("NEXUSTIX_PG_ROLE")
                 if role:
                     specification["environment"]["NEXUSTIX_PG_ALLOW_INITDB"] = "0" if previous else "1"
                     specification["environment"]["NEXUSTIX_INSTALLATION_ID"] = identity
-                launch_order[role if role in {"primary", "standby"} else "applications"].append(name)
+                launch_order["coordination" if name == "etcd" else role if role in {"primary", "standby"} else "applications"].append(name)
             write_secret(folder / "launch-order.json", json.dumps(launch_order, indent=2) + "\n", mode=0o644)
             for service in compose["services"].values():
                 service.setdefault("labels", {})["org.nexustix.installation"] = identity
+                if offline_images and "build" in service:
+                    # Imágenes cargadas desde scripts/paquete_offline.py: sin construir ni descargar.
+                    service["image"] = f"nexustix/{service['image'].rsplit('/', 1)[-1].split(':')[0]}:offline"
+                    del service["build"]
             for resource in ("volumes", "networks"):
                 for spec in compose.get(resource, {}).values():
                     spec.setdefault("labels", {})["org.nexustix.installation"] = identity
@@ -256,10 +261,12 @@ def main():
     prepare_parser.add_argument("--previous", type=Path, help="Entrega anterior: conservar credenciales e identidad")
     prepare_parser.add_argument("--acknowledge-db-transition", action="append", choices=DOMAINS, default=[],
                                 help="Reconoce procedimiento manual ya resuelto; NO promueve, aísla ni verifica el primario")
+    prepare_parser.add_argument("--imagenes-offline", action="store_true",
+                                help="Usar imágenes nexustix/*:offline cargadas con scripts/paquete_offline.py")
     arguments = parser.parse_args()
     try:
         prepare(arguments.inventory, arguments.destination, arguments.source_root,
-                arguments.previous, arguments.acknowledge_db_transition)
+                arguments.previous, arguments.acknowledge_db_transition, arguments.imagenes_offline)
     except (InventoryError, OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         # No imprimir trazas, contenidos de archivos privados ni comandos con claves.
         if isinstance(exc, InventoryError):

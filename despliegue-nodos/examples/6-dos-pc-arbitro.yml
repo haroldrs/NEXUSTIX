@@ -1,0 +1,40 @@
+# Dos PC con todos los servicios + un árbitro que solo vota.
+# Failover AUTOMÁTICO de PostgreSQL: Patroni elige la base principal por mayoría
+# de 3 votantes etcd. Si cae cualquiera de las dos PC, la otra + el árbitro
+# suman 2 de 3 y promueven la réplica; nunca puede haber dos principales.
+# Direcciones de ejemplo de Tailscale (100.x.y.z): reemplace por las reales.
+version: 1
+deployment: dos-pc-arbitro
+release: ha-auto-v1
+profile: distribuido
+gateway: {preferred: pc1}
+applications:
+  mirror_nodes: [pc1, pc2]
+  replicas: {frontend: 2, gateway: 2, usuarios: 2, eventos: 2, compras: 2}
+coordination:
+  mode: patroni
+  voters: [pc1, pc2, arbitro]
+nodes:
+  - id: pc1
+    address: 100.101.1.11
+    platform: fedora
+    failure_domain: laptop-fedora
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: []
+  - id: pc2
+    address: 100.101.1.12   # IP Tailscale de Windows (Docker Desktop + WSL2).
+    platform: wsl2
+    failure_domain: laptop-windows
+    resources: {cpus: 4, memory_mb: 4096}
+    roles: []
+  - id: arbitro
+    address: 100.101.1.13   # Laptop que solo ejecuta etcd.
+    platform: wsl2
+    failure_domain: laptop-arbitro
+    resources: {cpus: 1, memory_mb: 512}
+    roles: []
+databases:
+  # Las principales se reparten para compartir la carga de escritura.
+  usuarios: {primary: pc1, standbys: [pc2], replication: sync, sync_quorum: 1}
+  eventos:  {primary: pc2, standbys: [pc1], replication: sync, sync_quorum: 1}
+  compras:  {primary: pc1, standbys: [pc2], replication: sync, sync_quorum: 1}
