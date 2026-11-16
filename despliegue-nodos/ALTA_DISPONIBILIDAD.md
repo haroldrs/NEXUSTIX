@@ -91,6 +91,42 @@ imágenes sin construir ni descargar:
 python3 despliegue-nodos/nodos.py preparar inventario.yml ~/nexustix-entrega --imagenes-offline
 ```
 
+## Conexión rápida con `unir.sh` (recomendada)
+
+En la PC administradora, después de `nodos.py preparar … --imagenes-offline`,
+envíe a cada PC su carpeta y el script por Tailscale:
+
+```bash
+bash despliegue-nodos/unir.sh enviar ~/nexustix-entrega pc2
+```
+
+```bash
+bash despliegue-nodos/unir.sh enviar ~/nexustix-entrega arbitro
+```
+
+En cada PC que se une (en Windows, dentro de Ubuntu), reciba los archivos y
+ejecute el script: carga las imágenes y enciende todo en orden.
+
+```bash
+mkdir -p ~/nexustix-recibido && tailscale file get ~/nexustix-recibido
+```
+
+```bash
+bash ~/nexustix-recibido/unir.sh recibir --imagenes /ruta/al/usb/nexustix-imagenes.tar
+```
+
+En la PC administradora (pc1), para su propia carpeta y creando el administrador:
+
+```bash
+bash despliegue-nodos/unir.sh iniciar ~/nexustix-entrega/pc1 --admin-email tu-correo@example.com
+```
+
+Sin Tailscale, `empaquetar` crea `pc2.tgz` para copiarlo por USB y en la otra PC
+se usa `bash unir.sh iniciar pc2.tgz`. Otros comandos: `estado` (servicios,
+portal y salud) y `detener` (para sin borrar datos). Si recibe un paquete nuevo
+de la misma instalación, la configuración anterior se guarda como respaldo y
+los datos se conservan.
+
 ## Orden de arranque
 
 1. En cada votante (las PC y el árbitro), primero `etcd`. etcd espera a la mayoría:

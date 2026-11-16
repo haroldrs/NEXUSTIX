@@ -143,3 +143,10 @@ def test_observer_reports_automatic_failover_with_leaders(monkeypatch):
     assert result["ha_operativa"] is True and result["mayoria_requerida"] == 2
     observations[1]["lider"] = None
     assert cluster_observer.coordinator(document)["ha_operativa"] is False
+
+
+def test_database_url_with_a_single_copy_puts_host_and_port_in_the_authority():
+    inv = load_inventory(ROOT / "despliegue-nodos/examples/1-local.yml")
+    url = database_url(inv, inv["nodes"][0], "usuarios", "secreto")
+    assert url.startswith("postgresql://nexustix_app:secreto@usuarios_db:5432/usuarios_db?")
+    assert "host=" not in url

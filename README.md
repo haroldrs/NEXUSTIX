@@ -14,6 +14,7 @@ revisión explícita: [hallazgos](docs/HALLAZGOS_PUBLICACION.md).
 y un árbitro, si se apaga cualquier PC la réplica de cada base se promueve sola
 y el navegador cambia solo de gateway. Guía para el laboratorio (Tailscale,
 árbitro, paquete sin Internet): [ALTA_DISPONIBILIDAD.md](despliegue-nodos/ALTA_DISPONIBILIDAD.md).
+Cada PC se une con un solo comando: `bash despliegue-nodos/unir.sh iniciar <paquete>`.
 Resultados medidos: [RESULTADOS_ALTA_DISPONIBILIDAD.md](docs/RESULTADOS_ALTA_DISPONIBILIDAD.md).
 El panel **Administración → Coordinación distribuida** muestra el directorio de
 nombres con latidos, la elección Bully, los relojes de Lamport y vectorial, y la

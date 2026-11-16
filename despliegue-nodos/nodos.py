@@ -56,6 +56,10 @@ def database_url(inventory, node, domain, password):
         address = (f"{domain}_db:{local_port}" if member == node["id"] else
                    f"{nodes[member]['address']}:{inventory['ports'][domain + '_db']}")
         candidates.append("host=" + address)
+    if len(candidates) == 1:
+        # Con un solo host, libpq no separa "nombre:puerto" del parámetro host.
+        return (f"postgresql://nexustix_app:{quote(password, safe='')}@{candidates[0].removeprefix('host=')}/{domain}_db?"
+                "target_session_attrs=read-write&connect_timeout=3")
     return (f"postgresql://nexustix_app:{quote(password, safe='')}@/{domain}_db?"
             + "&".join(candidates) + "&target_session_attrs=read-write&connect_timeout=3")
 

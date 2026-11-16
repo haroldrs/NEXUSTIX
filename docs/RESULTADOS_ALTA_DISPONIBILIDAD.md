@@ -67,9 +67,27 @@ gateway (7 eventos), apareció el aviso "La computadora … dejó de responder.
 Seguimos atendiéndote desde …" y las solicitudes siguientes fueron directamente
 al nuevo gateway.
 
-## 5. Pruebas automáticas
+## 5. Clúster completo de 3 máquinas levantado con `unir.sh` (16/11/2026)
 
-`python3 -m pytest -q`: 160 aprobadas. Siguen fallando 2 pruebas que ya fallaban
+Se simularon las 3 computadoras en un solo equipo, cada una con su propia IP
+(10.99.0.11 pc1, 10.99.0.12 pc2, 10.99.0.13 árbitro) y su propia carpeta. Cada
+"PC" se encendió con un solo comando: `bash unir.sh iniciar <paquete>.tgz`.
+
+| Prueba | Resultado |
+|---|---|
+| Arranque con `unir.sh` | pc1 y pc2 con sus 10 servicios sanos; árbitro votando; administrador creado |
+| Topología | usuarios y compras: principal pc1, réplica síncrona pc2; eventos: principal pc2, réplica síncrona pc1 |
+| Directorio y Bully | 6 instancias vivas (3 por PC); coordinador compras_pc1 |
+| Concurrencia entre las dos PC | 30 compradores repartidos en ambos gateways, 5 asientos: **5 vendidas** (2 por pc1, 3 por pc2), inventario consistente |
+| **Apagado de golpe de la PC troncal (pc1, 10 contenedores)** | El sistema **volvió a vender por pc2 a los 42.7 s**, sin intervención. Las tres bases quedaron con su principal en pc2 |
+| Reencendido de pc1 con `unir.sh iniciar` | pc1 vuelve como **réplica síncrona de las tres bases** y recupera el rol de coordinador (Bully) |
+
+Durante esta prueba se corrigió un error previo de `nodos.py`: con una sola
+copia de una base, la dirección de conexión no separaba el puerto del nombre.
+
+## 6. Pruebas automáticas
+
+`python3 -m pytest -q`: 161 aprobadas. Siguen fallando 2 pruebas que ya fallaban
 antes de estos cambios (comprueban textos antiguos del frontend):
 `test_purchase_frontends_send_idempotency_key_and_cors_allows_it` y
 `test_frontend_registers_login_on_load_not_after_a_purchase`.
