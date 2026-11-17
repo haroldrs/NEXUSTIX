@@ -213,11 +213,16 @@ if coordination == "patroni_etcd_quorum":
     print("Failover automático de bases: activo (mayoría de votantes etcd).")
 for domain in ("usuarios", "eventos", "compras"):
     if domain in me.get("roles", []):
-        try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{ports.get(domain + '_backend')}/health", timeout=3) as answer:
-                print(f"  {domain}: {json.loads(answer.read()).get('status')}")
-        except Exception:
-            print(f"  {domain}: sin respuesta todavía")
+        # En Fedora/Linux los servicios escuchan en la IP de la PC; en WSL2, en todas.
+        status = "sin respuesta todavía"
+        for host in ("127.0.0.1", me.get("address")):
+            try:
+                with urllib.request.urlopen(f"http://{host}:{ports.get(domain + '_backend')}/health", timeout=3) as answer:
+                    status = json.loads(answer.read()).get("status")
+                    break
+            except Exception:
+                continue
+        print(f"  {domain}: {status}")
 PY
 }
 

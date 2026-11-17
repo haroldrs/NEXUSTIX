@@ -85,7 +85,26 @@ Se simularon las 3 computadoras en un solo equipo, cada una con su propia IP
 Durante esta prueba se corrigió un error previo de `nodos.py`: con una sola
 copia de una base, la dirección de conexión no separaba el puerto del nombre.
 
-## 6. Pruebas automáticas
+## 6. Tres PC completas (sin árbitro) con `unir.sh` (17/11/2026)
+
+Inventario `examples/7-tres-pc-patroni.yml`, 3 máquinas simuladas con IP propia,
+imágenes reconstruidas desde el último commit. Cada PC se encendió con
+`unir.sh iniciar`.
+
+| Prueba | Resultado |
+|---|---|
+| Arranque | Las 3 PC con sus 10 servicios sanos; 9 instancias vivas en el directorio |
+| Topología | Cada base con su principal en una PC distinta (usuarios pc1, eventos pc2, compras pc3), una réplica síncrona y una asíncrona |
+| Concurrencia en 3 gateways | 45 compradores, 6 asientos: **6 vendidas**, inventario consistente |
+| Apagado de golpe de pc1 | Se volvió a vender a los **28.2 s**; cada base conservó una réplica; pc1 reincorporada en 28 s |
+| Apagado de golpe de pc3 | Se volvió a vender a los **41.1 s**; reincorporada en 25 s |
+| Apagado de golpe de pc2, con las **tres** bases principales | Se volvió a vender a los **33.8 s**; las tres bases se promovieron en pc1; reincorporada en 25 s |
+| Integridad tras las tres caídas | Inventario consistente en todos los eventos, sin ventas perdidas ni duplicadas; coordinador y 9 instancias de vuelta |
+
+Se corrigió `unir.sh estado`, que en Fedora/Linux mostraba "sin respuesta"
+aunque los servicios estaban sanos (ahora consulta también la IP de la PC).
+
+## 7. Pruebas automáticas
 
 `python3 -m pytest -q`: 161 aprobadas. Siguen fallando 2 pruebas que ya fallaban
 antes de estos cambios (comprueban textos antiguos del frontend):
