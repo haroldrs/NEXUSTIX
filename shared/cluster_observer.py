@@ -390,7 +390,8 @@ class ClusterObserver:
         evidence = any(node["respondio"] for node in nodes)
         all_healthy = bool(nodes) and all(node["estado"] == "activo" for node in nodes)
         db_complete = len(databases) == 3 and all(database.get("primario_observado")
-            and database["primario_observado"].get("nodo") == database["primario_configurado"]
+            # Con promoción automática la principal puede estar en otra PC tras un failover.
+            and (database["primario_observado"].get("nodo") == database["primario_configurado"] or database.get("promocion_automatica"))
             and not database.get("discordancia_rol") and database.get("roles_observados") == ["primario"]
             and database.get("quorum_wal", {}).get("estado") in {"disponible", "no_requerido"}
             and all(standby.get("estado_observacion") == "activo" for standby in database["standbys"])

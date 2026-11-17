@@ -165,8 +165,17 @@ def component_entries(document):
     return entries
 
 
+def _sync_names(value):
+    """Nombres de synchronous_standby_names en cualquier formato: 'a', 'ANY 1 (a,b)', '"a"'."""
+    inner = re.sub(r"^\s*(ANY|FIRST)?\s*\d*\s*\(", "", value or "", flags=re.IGNORECASE).rstrip(") ")
+    return {name.strip().strip('"') for name in inner.split(",") if name.strip()}
+
+
 def database_components(document, components, diagnostics, moment):
     result, assignments = [], []
+    # Con Patroni, la réplica síncrona la elige el coordinador y puede cambiar:
+    # la política se compara por nombres, no por el texto exacto del modo manual.
+    automatic = (document.get("coordination_plan") or {}).get("mode") == "patroni"
     by_id = {c["id"]: c for c in components}
     for domain, config in document["databases"].items():
         sources = [d for d in diagnostics if by_id.get(d["componente"], {}).get("servicio") == domain]
@@ -182,6 +191,15 @@ def database_components(document, components, diagnostics, moment):
             if source.get("rol") != "primario" or not isinstance(name, str) or not name:
                 continue
             matched = next((n["id"] for n in document["nodes"] if "nx_" + component_id(domain, n["id"]) == name), None)
+            if matched is None and automatic:
+                # Patroni fija cluster_name al del clúster: se identifica la PC por el
+                # host al que se conectó la API ("<base>_db" = la base de su propio nodo).
+                host = identity.get("host_conectado")
+                if host == domain + "_db":
+                    matched = by_id.get(source["componente"], {}).get("nodo")
+                else:
+                    matched = next((n["id"] for n in document["nodes"] if n["address"] == host), None)
+                name = "nx_" + component_id(domain, matched) if matched else name
             system_id = system.get("identificador_sistema")
             system_id = system_id if isinstance(system_id, str) and re.fullmatch(r"[0-9]{1,24}", system_id) else None
             identity_key = (name, system_id)
@@ -192,10 +210,13 @@ def database_components(document, components, diagnostics, moment):
                 "alcance": "Identidad informada por PostgreSQL; no certifica la máquina física ni fencing."}
         primaries = list(identities.values())
         observed = primaries[0] if len(primaries) == 1 else None
-        mismatch = bool(roles and roles != ["primario"]) or len(primaries) > 1 or bool(observed and observed["nodo"] != config["primary"])
+        # Con Patroni la principal puede cambiar de PC tras un failover: eso es lo
+        # esperado. Solo es discordancia si hay roles inesperados o dos principales.
+        mismatch = (bool(roles and roles != ["primario"]) or len(primaries) > 1
+                    or bool(observed and observed["nodo"] != config["primary"] and not automatic))
         state = "degradado" if failed or mismatch else "saludable" if available and roles == ["primario"] else "desconocido"
         result.append({"id": domain + "_db", "nombre": "PostgreSQL " + domain, "tipo": "postgresql",
-            "nodo": config["primary"], "dependencias": [], "estado": state, "comprobado_en": moment,
+            "nodo": observed["nodo"] if automatic and observed and observed.get("nodo") else config["primary"], "dependencias": [], "estado": state, "comprobado_en": moment,
             "latencia_ms": None, "instancia": None, "base_datos": "disponible" if available else "desconocido",
             "origen_configuracion": "inventario_nodos", "roles_observados": roles,
             "detalle": "Rol e identidad SQL observados mediante las API; nodo configurado e identidad observada se muestran por separado.",
@@ -208,7 +229,10 @@ def database_components(document, components, diagnostics, moment):
         channel_evidence = (isinstance(rows, list) and latest.get("rol") == "primario" and len(primaries) <= 1
                             and all(isinstance(row, dict) and row.get("application_name") and row.get("state") for row in rows))
         standby_rows = []
-        for node_id in config["standbys"]:
+        members = [config["primary"], *config["standbys"]]
+        current = observed["nodo"] if automatic and observed and observed.get("nodo") in members else config["primary"]
+        replica_nodes = [node_id for node_id in members if node_id != current]
+        for node_id in replica_nodes:
             application = "nx_" + component_id(domain, node_id)
             channel = channels.get(application)
             row = {"nodo": node_id, "application_name": application, "canal_observado": bool(channel),
@@ -221,15 +245,21 @@ def database_components(document, components, diagnostics, moment):
             standby_rows.append(row)
             result.append({"id": component_id(domain + "_sb", node_id), "nombre": "Standby " + domain + " · " + node_id,
                 "tipo": "replica_postgresql", "nodo": node_id, "dependencias": [domain + "_db"],
-                "estado": "desconocido", "comprobado_en": moment, "latencia_ms": None, "instancia": application,
+                # Un canal WAL en "streaming" observado desde la principal es evidencia de réplica activa.
+                "estado": "saludable" if row["estado_observacion"] == "activo" else "degradado" if channel else "desconocido", "comprobado_en": moment, "latencia_ms": None, "instancia": application,
                 "base_datos": "desconocido", "origen_configuracion": "inventario_nodos",
                 "replicacion": row["estado_canal"], "lag_bytes": row["lag_bytes"],
                 "detalle": "Canal WAL observado desde la conexión API; salud directa del standby no consultada." if channel else "Standby configurado; sin canal WAL verificable en esta consulta."})
         durability = latest.get("durabilidad") if isinstance(latest.get("durabilidad"), dict) else {}
         sync_value = durability.get("synchronous_standby_names")
-        sync_peers = ["nx_" + component_id(domain, node_id) for node_id in config["standbys"]]
+        sync_peers = ["nx_" + component_id(domain, node_id) for node_id in replica_nodes]
         expected_sync = f"ANY {config['sync_quorum']} ({','.join(sync_peers)})" if config["replication"] == "sync" else ""
-        policy_matches = isinstance(sync_value, str) and re.sub(r"\s", "", sync_value) == re.sub(r"\s", "", expected_sync)
+        if automatic and isinstance(sync_value, str):
+            chosen = _sync_names(sync_value)
+            # Sin réplica disponible Patroni deja la lista vacía y sigue en modo asíncrono.
+            policy_matches = chosen <= set(sync_peers) and (config["replication"] == "async" or bool(chosen) or not channel_evidence)
+        else:
+            policy_matches = isinstance(sync_value, str) and re.sub(r"\s", "", sync_value) == re.sub(r"\s", "", expected_sync)
         acknowledgers = sum(row.get("state") == "streaming" and row.get("sync_state") in ("sync", "quorum")
                            for name, row in channels.items() if name in sync_peers) if channel_evidence else None
         quorum_state = "desconocido" if sync_value is None or not channel_evidence else "discordante" if not policy_matches else "no_requerido" if config["replication"] == "async" else "disponible" if acknowledgers >= config["sync_quorum"] else "insuficiente"
@@ -251,7 +281,7 @@ def database_components(document, components, diagnostics, moment):
                 "synchronous_commit_observado": sync_commit, "es_consenso": False},
             "escritura": {"estado": write_state,
                 "detalle": "Sólo lecturas de configuración y canales WAL; no se ejecuta un commit de prueba. Quórum insuficiente significa falta de confirmadores en la muestra."},
-            "promocion_automatica": False, "ubicacion_servidor_conectado_verificada": False,
+            "promocion_automatica": automatic, "ubicacion_servidor_conectado_verificada": False,
             "alcance": "Asignación declarada y canales observados; una réplica conectada no acredita recuperación ni fencing."})
     return result, assignments
 
@@ -325,8 +355,10 @@ def infrastructure_view(document, components, assignments):
             dependencies.append({"componente": role, "motivo": "Sin redundancia en dominios de fallo declarados independientes",
                 "nodos": [n["id"] for n in machines], "dominios": domain_ids})
     for domain, db in document["databases"].items():
+        automatic = (document.get("coordination_plan") or {}).get("mode") == "patroni"
         dependencies.append({"componente": domain + "_db", "nodos": [db["primary"]],
-            "motivo": "Primario de escritura único; si falla, requiere fencing y recuperación manual coordinada." if db["standbys"] else "Primario único sin standby configurado."})
+            "motivo": ("Primario único en cada momento; si falla, Patroni promueve una réplica por mayoría de votantes." if automatic
+                       else "Primario de escritura único; si falla, requiere fencing y recuperación manual coordinada.") if db["standbys"] else "Primario único sin standby configurado."})
     return {"modo": "inventario_nodos", "despliegue": document["deployment"], "perfil": document["profile"],
         "alta_disponibilidad_verificada": False, "promocion_automatica": False,
         "estado_preparacion": "recuperacion_manual_preparada", "nodos": nodes, "bases": assignments,

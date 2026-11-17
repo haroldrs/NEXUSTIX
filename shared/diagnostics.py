@@ -91,6 +91,13 @@ def install(app, get_db, require_admin):
             identity = read("identidad", "SELECT current_setting('cluster_name') AS identidad_nodo, "
                 "inet_server_addr()::text AS direccion, inet_server_port() AS puerto")
             system = read("sistema", "SELECT system_identifier::text AS identificador_sistema FROM pg_control_system()")
+            if isinstance(identity, dict):
+                # Host al que libpq se conectó de verdad entre los candidatos de la URL
+                # multi-host: con Patroni, cluster_name es el del clúster, no el del nodo.
+                try:
+                    identity["host_conectado"] = db.connection().connection.dbapi_connection.info.host
+                except Exception:
+                    identity["host_conectado"] = None
             return {"disponible": True, "rol": "standby" if standby else "primario",
                 "comprobado_en": datetime.now(timezone.utc).isoformat(), "version": version,
                 "en_recuperacion": standby, "replicas": replication, "receptor_wal": receiver,
