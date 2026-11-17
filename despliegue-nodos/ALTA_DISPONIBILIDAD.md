@@ -37,7 +37,7 @@ solo con servicios y réplicas.
 
 ## Inventario
 
-Ejemplo listo: [`examples/6-dos-pc-arbitro.yml`](examples/6-dos-pc-arbitro.yml).
+Ejemplos listos: [`examples/6-dos-pc-arbitro.yml`](examples/6-dos-pc-arbitro.yml) (2 PC + árbitro) y [`examples/7-tres-pc-patroni.yml`](examples/7-tres-pc-patroni.yml) (3 PC completas, más robusto: tras perder una PC cada base conserva una réplica).
 
 ```yaml
 coordination:
