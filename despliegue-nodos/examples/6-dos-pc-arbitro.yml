@@ -14,6 +14,8 @@ applications:
 coordination:
   mode: patroni
   voters: [pc1, pc2, arbitro]
+# docker_subnet fijo en 10.231.x: Docker reparte 172.x.0.0/16 entre otros proyectos y
+# una subred 172.x podría chocar (error "Pool overlaps").
 nodes:
   - id: pc1
     address: 100.101.1.11
@@ -21,18 +23,21 @@ nodes:
     failure_domain: laptop-fedora
     resources: {cpus: 4, memory_mb: 4096}
     roles: []
+    docker_subnet: 10.231.71.0/24   # Red interna de Docker en esta PC; distinta en cada una.
   - id: pc2
     address: 100.101.1.12   # IP Tailscale de Windows (Docker Desktop + WSL2).
     platform: wsl2
     failure_domain: laptop-windows
     resources: {cpus: 4, memory_mb: 4096}
     roles: []
+    docker_subnet: 10.231.72.0/24   # Red interna de Docker en esta PC; distinta en cada una.
   - id: arbitro
     address: 100.101.1.13   # Laptop que solo ejecuta etcd.
     platform: wsl2
     failure_domain: laptop-arbitro
     resources: {cpus: 1, memory_mb: 512}
     roles: []
+    docker_subnet: 10.231.73.0/24   # Red interna de Docker en esta PC; distinta en cada una.
 databases:
   # Las principales se reparten para compartir la carga de escritura.
   usuarios: {primary: pc1, standbys: [pc2], replication: sync, sync_quorum: 1}
