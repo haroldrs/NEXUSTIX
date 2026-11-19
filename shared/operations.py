@@ -384,7 +384,9 @@ DIAGNOSTIC_KEYS = {"disponible", "rol", "comprobado_en", "version", "en_recupera
     "actual_lsn", "persistido_lsn", "archived_count", "failed_count", "last_archived_time", "last_failed_time", "num_timed", "num_requested", "write_time", "sync_time",
     "buffers_written", "stats_reset", "checkpoint_lsn", "redo_lsn", "timeline_id", "checkpoint_time", "total", "activas", "maximas", "fsync", "full_page_writes", "synchronous_commit", "wal_level", "archive_mode",
     "identidad", "identidad_nodo", "direccion", "puerto", "host_conectado", "sistema", "identificador_sistema", "synchronous_standby_names", "transaction_read_only"}
-METRIC_KEYS = {"disponible", "servicio", "instancia", "desde", "alcance", "solicitudes", "exitosas", "errores_http", "latencia_media_ms", "latencia_max_ms", "recientes", "momento", "correlation_id", "metodo", "ruta", "status", "latencia_ms"}
+METRIC_KEYS = {"disponible", "servicio", "instancia", "desde", "alcance", "solicitudes", "exitosas", "errores_http", "latencia_media_ms", "latencia_max_ms", "recientes", "momento", "correlation_id", "metodo", "ruta", "status", "latencia_ms",
+    "pid", "ppid", "estado_proceso", "hilos", "memoria_mb", "cpu_segundos", "proceso_activo_s",
+    "cambios_contexto_voluntarios", "cambios_contexto_forzados", "procesos_contenedor"}
 
 
 def whitelist(value, keys, depth=0):

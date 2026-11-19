@@ -263,7 +263,17 @@ function selectAuthMode(mode) {
   document.getElementById("auth-name").hidden = !register;
   document.getElementById("auth-name").required = register;
   document.getElementById("auth-password").autocomplete = register ? "new-password" : "current-password";
+  if (typeof showAuthCode === "function") showAuthCode(false);
   document.querySelectorAll("[data-auth-mode]").forEach(tab => tab.classList.toggle("active", tab.dataset.authMode === mode));
+}
+
+// Segundo factor: el campo aparece solo cuando el servidor confirma que la contraseña
+// es correcta y la cuenta tiene MFA activo.
+function showAuthCode(visible) {
+  const input = document.getElementById("auth-code");
+  input.hidden = !visible; document.getElementById("auth-code-label").hidden = !visible;
+  input.required = visible;
+  if (!visible) input.value = ""; else input.focus();
 }
 
 function requestLoginAfterExpiry() { openAuthDialog("login", false, "La sesión expiró. Inicia sesión de nuevo para continuar."); }
@@ -281,16 +291,19 @@ async function submitAuth(event) {
   const mode = document.getElementById("auth-dialog").dataset.mode || "login";
   const payload = {email: form.elements.email.value.trim(), password: form.elements.password.value};
   if (mode === "register") payload.nombre = form.elements.nombre.value.trim();
+  const codeInput = document.getElementById("auth-code");
+  if (mode === "login" && !codeInput.hidden && codeInput.value.trim()) payload.codigo = codeInput.value.replace(/\s/g, "");
   button.disabled = true;
   if (REFRESH_PROMISE) await REFRESH_PROMISE;
   const result = await fetchJSON(`${CONFIG.USUARIOS_URL}/auth/${mode === "register" ? "register" : "login"}`, {
     method: "POST", credentials: "include", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
   });
   button.disabled = false;
+  if (result.data?.mfa_requerido) showAuthCode(true);
   if (!result.ok || !result.data?.access_token || !result.data?.user) {
     showNotice(document.getElementById("auth-result"), result.error || errorMessage(result.data, `No se pudo autenticar (HTTP ${result.status}).`), "error"); return;
   }
-  setAuthenticated(result.data); form.reset();
+  setAuthenticated(result.data); form.reset(); showAuthCode(false);
   document.getElementById("auth-dialog").close();
   showNotice(document.getElementById("purchase-result"), "Sesión iniciada. Revisa tu selección para confirmar.", "success");
   if (PENDING_VIEW) { const next = PENDING_VIEW; PENDING_VIEW = null; setView(next); }

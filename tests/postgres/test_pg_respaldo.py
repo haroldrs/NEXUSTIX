@@ -88,7 +88,7 @@ def test_dump_restore_keeps_schema_fingerprint_and_aggregates(pg_url_factory, ke
             assert restored_schema["row_counts"]["compras"] == 2
             assert restored_schema["row_counts"]["purchase_idempotency"] == 2
         if name == "usuarios_db":
-            assert restored_schema["alembic_revision"] == "20261102_02"
+            assert restored_schema["alembic_revision"] == "20261119_03"
 
     # Una restauración incompleta sí se detecta.
     damaged = dict(before_schema, constraints=before_schema["constraints"][1:])

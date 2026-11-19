@@ -104,9 +104,23 @@ imágenes reconstruidas desde el último commit. Cada PC se encendió con
 Se corrigió `unir.sh estado`, que en Fedora/Linux mostraba "sin respuesta"
 aunque los servicios estaban sanos (ahora consulta también la IP de la PC).
 
-## 7. Pruebas automáticas
+## 7. Seguridad y procesos: actualización sobre un clúster con datos (19/11/2026)
 
-`python3 -m pytest -q`: 161 aprobadas. Siguen fallando 2 pruebas que ya fallaban
+Se encendieron las 3 PC simuladas con la versión anterior, se hicieron 6 compras
+(30 compradores, 6 asientos) y luego se actualizó **una PC a la vez** con
+`docker compose up -d usuarios eventos compras frontend`, como se hará en el laboratorio.
+
+| Prueba | Resultado |
+|---|---|
+| Actualización PC por PC | Las 3 PC siguieron atendiendo durante la actualización; la base de Usuarios pasó sola a la revisión `20261119_03`; 31 cuentas y el inventario conservados |
+| Bloqueo por intentos fallidos | 5 contraseñas erróneas **repartidas entre las 3 PC** bloquean la cuenta (el contador está en la base, no en cada PC); con la contraseña correcta responde 429 durante 120 s; el administrador la desbloquea desde el panel |
+| MFA (TOTP) | Configurar muestra un QR; activado, el inicio de sesión pide el código de 6 dígitos sin emitir token; un código ya usado se rechaza (protección contra reenvío); desactivar requiere un código válido. Probado por API y en el navegador |
+| Procesos | El Centro de Control muestra PID, estado, hilos, memoria, CPU, cambios de contexto y procesos del contenedor de las 9 instancias |
+| Panel | 33/33 componentes sanos tras la actualización |
+
+## 8. Pruebas automáticas
+
+`python3 -m pytest -q`: 165 aprobadas (incluye `tests/test_mfa_bloqueo.py`). Siguen fallando 2 pruebas que ya fallaban
 antes de estos cambios (comprueban textos antiguos del frontend):
 `test_purchase_frontends_send_idempotency_key_and_cors_allows_it` y
 `test_frontend_registers_login_on_load_not_after_a_purchase`.

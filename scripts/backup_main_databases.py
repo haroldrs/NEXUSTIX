@@ -412,7 +412,7 @@ def _wait_for_initialized_postgres(container: str, timeout_seconds: int) -> None
 
 
 def _run_migration_rehearsal(network: str, backup_id: str, db_container: str) -> None:
-    expected_revisions = {"usuarios": "20261102_02", "compras": "20261102_03"}
+    expected_revisions = {"usuarios": "20261119_03", "compras": "20261102_03"}
     for service in ("usuarios", "compras"):
         image_tag = f"nexustix-backup-verify:{backup_id}-{service}"
         dockerfile = ROOT / service / "Dockerfile"

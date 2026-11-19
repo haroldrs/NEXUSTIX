@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, String, func, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.sql import func
 
 from database import Base
@@ -20,6 +20,12 @@ class Usuario(Base):
     password_hash = Column(String(512), nullable=True)
     role = Column(String(24), nullable=False, default="comprador", server_default="comprador")
     auth_status = Column(String(32), nullable=False, default="legacy_unclaimed", server_default="legacy_unclaimed")
+    # Seguridad (migración 20261119_03): bloqueo temporal y MFA TOTP opcional.
+    failed_logins = Column(Integer, nullable=False, default=0, server_default="0")
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+    mfa_secret = Column(String(64), nullable=True)
+    mfa_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    mfa_last_step = Column(BigInteger, nullable=True)
 
 
 class RefreshSession(Base):

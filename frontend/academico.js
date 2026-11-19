@@ -3,50 +3,61 @@
 // Organiza por unidad lo que ya existe. Sin reporte registrado, nada se marca como demostrado.
 const ACADEMIC_STATES = {implementado: "Implementado", configurado: "Configurado", observado: "Observado", demostrado: "Demostrado", propuesto: "Propuesto", pendiente: "Pendiente de verificar"};
 const ACADEMIC_UNITS = {
-  "Unidad I": {title: "Procesos y comunicación", topics: [
-    {name: "Arquitectura distribuida", text: "Mapa de computadoras, servicios y conexiones según el inventario.", concept: "Sistema distribuido", feature: "Mapa interactivo", state: "implementado", section: "cluster"},
-    {name: "Identificación de procesos", text: "Instancia, nodo y métricas de cada proceso que respondió.", concept: "Proceso", feature: "Procesos, contenedores y servicios", state: "pendiente", section: "cluster", observe: "instances"},
-    {name: "Microservicios", text: "Usuarios, Eventos y Compras con bases separadas.", concept: "Descomposición en servicios", feature: "Microservicios y salud", state: "implementado", section: "services", observe: "instances"},
-    {name: "Contenedores", text: "Cada servicio se despliega con Docker Compose.", concept: "Aislamiento", feature: "Compose e inventario", state: "configurado", section: "cluster"},
-    {name: "Comunicación HTTP y protocolos", text: "Las APIs se comunican por HTTP con JSON.", concept: "Comunicación entre procesos", feature: "Comunicación síncrona y asíncrona", state: "implementado", section: "observability"},
-    {name: "Red distribuida", text: "Direcciones y puertos por inventario, sin IP fijas en el código.", concept: "Diseño de red", feature: "Acceso al sistema", state: "configurado", section: "cluster"},
-    {name: "Balanceo", text: "HAProxy reparte entre instancias y retira las que no responden.", concept: "Balanceo y redundancia", feature: "Balanceo de APIs", state: "implementado", section: "cluster", scenarios: ["B", "C", "D"]},
-    {name: "Trazabilidad de compras", text: "Recorrido de un pedido a partir de registros durables.", concept: "Correlación", feature: "Seguir una compra o pedido", state: "pendiente", section: "observability"},
-    {name: "Identificación de instancias", text: "Muestras reales de qué instancia responde.", concept: "Replicación de procesos", feature: "Instancias que responden", state: "pendiente", section: "observability", observe: "instances"},
-    {name: "Síncrona y asíncrona", text: "Reserva con respuesta esperada frente a registros del outbox.", concept: "Modelos de comunicación", feature: "Comunicación síncrona y asíncrona", state: "pendiente", section: "observability"},
+  "Unidad I": {title: "Introducción, procesos y comunicación", topics: [
+    {name: "Qué es un sistema distribuido", text: "Tres computadoras autónomas (Fedora y Windows) que cooperan por mensajes y se ven como una sola tienda.", concept: "Autonomía, transparencia, escalabilidad, heterogeneidad", feature: "Centro de Control · computadoras del inventario", state: "implementado", section: "cluster"},
+    {name: "Componentes", text: "Nodos, red (Tailscale), procesos, recursos compartidos (bases), protocolos (HTTP/JSON) y middleware (HAProxy, Docker).", concept: "Elementos de un sistema distribuido", feature: "Mapa de la arquitectura", state: "implementado", section: "observability"},
+    {name: "Identificación de procesos", text: "PID, estado, hilos, memoria, CPU y cambios de contexto del proceso real de cada servicio en cada PC, leídos de /proc.", concept: "Proceso, PCB, planificador", feature: "Centro de Control · procesos, contenedores y servicios", state: "implementado", section: "cluster", observe: "instances"},
+    {name: "Ciclo de vida del proceso", text: "Un servicio espera solicitudes (bloqueado) y pasa a ejecución al recibir una. docker stop envía la señal SIGTERM (fin ordenado); docker kill envía SIGKILL (fin inmediato).", concept: "Estados y señales", feature: "Comandos de la demostración", state: "implementado", section: "observability"},
+    {name: "Microservicios", text: "Usuarios, Eventos y Compras: procesos independientes, cada uno con su base.", concept: "Descomposición en servicios", feature: "Microservicios y salud", state: "implementado", section: "services", observe: "instances"},
+    {name: "Contenedores", text: "Cada proceso corre aislado en su contenedor, con su propio espacio de PID y de red.", concept: "Aislamiento", feature: "Compose generado por inventario", state: "implementado", section: "cluster"},
+    {name: "IPC local", text: "Dentro de cada PC: PostgreSQL usa memoria compartida y semáforos entre sus procesos; la terminal usa tuberías (docker logs | grep); Docker usa señales.", concept: "Memoria compartida, semáforos, tuberías, señales", feature: "PostgreSQL y persistencia", state: "implementado", section: "databases"},
+    {name: "Sockets", text: "Toda la comunicación entre PC viaja por sockets TCP: HTTP de las APIs, replicación de PostgreSQL y votación de etcd.", concept: "Socket", feature: "Puertos de cada PC", state: "implementado", section: "cluster"},
+    {name: "RPC sobre REST", text: "Compras invoca a Eventos (reservar, confirmar, liberar) como una llamada remota con respuesta.", concept: "Llamada a procedimiento remoto", feature: "Seguir una compra", state: "implementado", section: "observability"},
+    {name: "Comunicación síncrona y asíncrona", text: "La reserva espera respuesta (síncrona); los avisos pendientes se guardan en el outbox y se envían después (asíncrona, como una cola).", concept: "Modelos de comunicación", feature: "Comunicación síncrona y asíncrona", state: "implementado", section: "observability"},
+    {name: "Comunicación en grupo", text: "Cada instancia envía su latido a todas las demás cada 2 s (difusión a un grupo).", concept: "Multidifusión", feature: "Coordinación distribuida · directorio", state: "implementado", section: "coordination"},
+    {name: "Balanceo", text: "HAProxy reparte entre las instancias de las 3 PC y retira las que no responden.", concept: "Balanceo y redundancia", feature: "Balanceo de APIs", state: "implementado", section: "cluster", scenarios: ["B", "C", "D"]},
+    {name: "Publicación/suscripción", text: "No se usa un broker (Kafka, RabbitMQ): con tres servicios bastan HTTP y outbox, y un broker sería otro componente que puede fallar.", concept: "Pub/sub", feature: "Propuesta de mejora", state: "propuesto", section: "observability"},
   ]},
-  "Unidad II": {title: "Consistencia y tolerancia a fallos", topics: [
-    {name: "Servicio de nombres", text: "Directorio replicado: cada instancia se registra, late y resuelve servicio → direcciones vivas con TTL.", concept: "Nombrado", feature: "Coordinación distribuida · directorio", state: "implementado", section: "coordination"},
-    {name: "Relojes lógicos", text: "Lamport y vectorial viajan en cada mensaje de la Saga; se comparan dos eventos para ver causalidad o concurrencia.", concept: "Relojes lógicos", feature: "Coordinación distribuida · relojes lógicos", state: "implementado", section: "coordination"},
+  "Unidad II": {title: "Nombres, sincronización, consistencia, replicación y tolerancia a fallas", topics: [
+    {name: "Servicio de nombres", text: "Directorio replicado: cada instancia se registra, late y resuelve servicio → direcciones vivas con TTL (caché).", concept: "Nombrado plano con caché", feature: "Coordinación distribuida · directorio", state: "implementado", section: "coordination"},
     {name: "Relojes físicos", text: "Cristian estima el desfase contra el coordinador; Berkeley promedia y envía ajustes.", concept: "Sincronización física", feature: "Coordinación distribuida · Cristian y Berkeley", state: "implementado", section: "coordination"},
-    {name: "Elección de líder", text: "Algoritmo del matón (Bully) entre todas las instancias; se puede simular la caída del coordinador.", concept: "Elección", feature: "Coordinación distribuida · coordinador", state: "implementado", section: "coordination"},
-    {name: "Concurrencia", text: "Comparación de operaciones sobre un mismo recurso.", concept: "Condición de carrera", feature: "Operaciones concurrentes", state: "pendiente", section: "observability", scenarios: ["A"]},
-    {name: "Exclusión mutua", text: "Bloqueo FOR UPDATE de la fila del evento al reservar.", concept: "Exclusión mutua", feature: "Reserva en Eventos", state: "implementado", section: "consistency", scenarios: ["A"]},
-    {name: "Consistencia de inventario", text: "Inicial = disponible + reservadas + confirmadas.", concept: "Invariantes", feature: "Inventario por evento", state: "pendiente", section: "observability", scenarios: ["A"]},
-    {name: "Saga", text: "Pasos y compensaciones entre Compras y Eventos.", concept: "Transacción distribuida sin 2PC", feature: "Saga del pedido", state: "implementado", section: "observability", scenarios: ["E", "F", "P"]},
-    {name: "Idempotencia", text: "Una clave durable evita pedidos duplicados.", concept: "Reintento seguro", feature: "Idempotencia en el recorrido", state: "implementado", section: "observability", scenarios: ["F"]},
-    {name: "Réplicas PostgreSQL", text: "Primaria y standbys según inventario y observación.", concept: "Replicación", feature: "Replicación por base", state: "configurado", section: "databases", observe: "replication", scenarios: ["H", "M"]},
-    {name: "WAL", text: "LSN y diferencia en bytes con la réplica.", concept: "Registro anticipado", feature: "Métricas de replicación", state: "implementado", section: "databases", observe: "wal", scenarios: ["J"]},
-    {name: "Checkpoints", text: "Puntos internos de recuperación; no son respaldos.", concept: "Recuperación local", feature: "Checkpoints y WAL", state: "implementado", section: "databases", observe: "checkpoints", scenarios: ["J"]},
-    {name: "Detección de fallos", text: "Latidos con plazo T + Δ entre instancias y sondeos del balanceador.", concept: "Detección", feature: "Coordinación distribuida · latidos", state: "implementado", section: "coordination"},
-    {name: "Recuperación", text: "Pedidos por trabajo durable; bases por procedimiento manual.", concept: "Recuperación", feature: "Recuperación de pedidos y guía manual", state: "implementado", section: "lab", scenarios: ["G", "N", "P"]},
-    {name: "Modo degradado", text: "Cada operación depende de sus servicios observados.", concept: "Funcionamiento degradado", feature: "Funcionamiento degradado", state: "pendiente", section: "cluster"},
-    {name: "Caída de computadoras", text: "Proyección por nodo y comparación con experimentos.", concept: "Fallos físicos", feature: "Si una computadora deja de funcionar", state: "pendiente", section: "cluster", scenarios: ["I", "O"]},
-    {name: "Métricas y experimentos", text: "RTO, RPO, latencia y disponibilidad con su tipo de dato.", concept: "Evaluación", feature: "Laboratorio de Resiliencia", state: "pendiente", section: "lab"},
-    {name: "Consenso y quórum", text: "Con coordination.mode: patroni, etcd (Raft) elige la base principal por mayoría de votantes; un árbitro desempata entre dos PC.", concept: "Consenso", feature: "Centro de Control · alta disponibilidad", state: "configurado", section: "cluster"},
+    {name: "Relojes lógicos", text: "Lamport y vectorial viajan en cada mensaje de la Saga; se comparan dos eventos para ver causalidad o concurrencia.", concept: "Relojes lógicos", feature: "Coordinación distribuida · relojes lógicos", state: "implementado", section: "coordination"},
+    {name: "Elección de líder", text: "Algoritmo del matón (Bully). El anillo no se implementó: con pocas instancias Bully es más simple y rápido.", concept: "Elección", feature: "Coordinación distribuida · coordinador", state: "implementado", section: "coordination"},
+    {name: "Exclusión mutua", text: "Centralizada: la base principal bloquea la fila del evento (FOR UPDATE) al reservar. Si cae, otra principal toma su lugar.", concept: "Exclusión mutua", feature: "Operaciones concurrentes", state: "implementado", section: "observability", scenarios: ["A"]},
+    {name: "Consenso y quórum", text: "etcd (Raft) decide qué base es principal con mayoría 2 de 3; nunca hay dos principales.", concept: "Consenso", feature: "Centro de Control · alta disponibilidad", state: "implementado", section: "cluster"},
+    {name: "Saga", text: "Pasos y compensaciones entre Compras y Eventos, en lugar de 2PC (que bloquea si cae el coordinador).", concept: "Transacción distribuida sin 2PC", feature: "Saga del pedido", state: "implementado", section: "observability", scenarios: ["E", "F", "P"]},
+    {name: "Idempotencia", text: "Una clave durable evita pedidos y cobros duplicados al reintentar.", concept: "Reintento seguro", feature: "Idempotencia en el recorrido", state: "implementado", section: "observability", scenarios: ["F"]},
+    {name: "Replicación", text: "Pasiva (primario-respaldo): tres copias de cada base, una síncrona y una asíncrona. Los servicios son activos: las tres copias atienden a la vez.", concept: "Replicación pasiva y activa", feature: "PostgreSQL y persistencia", state: "implementado", section: "databases", observe: "replication", scenarios: ["H", "M"]},
+    {name: "Modelos de consistencia", text: "Fuerte en la principal y la réplica síncrona; eventual en la asíncrona y en el directorio; orden causal con reloj vectorial. Ante partición elige consistencia (CP).", concept: "Linealizable, causal, eventual, CAP", feature: "Consistencia y snapshots", state: "implementado", section: "consistency"},
+    {name: "Invariante del inventario", text: "Inicial = disponibles + reservadas + vendidas, en cada evento.", concept: "Invariantes", feature: "Inventario por evento", state: "implementado", section: "consistency", scenarios: ["A"]},
+    {name: "WAL y checkpoints", text: "Registro anticipado, LSN, retraso de réplica y puntos de recuperación.", concept: "Recuperación hacia atrás", feature: "Checkpoints y WAL", state: "implementado", section: "databases", observe: "wal", scenarios: ["J"]},
+    {name: "Detección de fallos", text: "Latidos con plazo T + Δ, sondeos del balanceador cada 3 s y llave de líder con TTL de 30 s.", concept: "Detección", feature: "Coordinación distribuida · latidos", state: "implementado", section: "coordination"},
+    {name: "Recuperación automática", text: "Patroni promueve la réplica síncrona (~30 s, RPO 0); pg_rewind reincorpora la antigua principal; los pedidos pendientes se retoman solos (hacia adelante).", concept: "Failover y recuperación", feature: "Centro de Control e Historial de incidentes", state: "implementado", section: "cluster", scenarios: ["G", "I", "N", "O"]},
+    {name: "Tipos de falla", text: "Se toleran fallas por caída y de temporización. Las bizantinas requieren 3k+1 nodos y firma de mensajes: quedan como límite.", concept: "Crash, temporización, valor, bizantina", feature: "Laboratorio de Resiliencia", state: "implementado", section: "lab"},
+    {name: "Métricas y experimentos", text: "RTO, RPO, latencia y disponibilidad medidos en las caídas de PC.", concept: "Evaluación", feature: "Laboratorio de Resiliencia", state: "implementado", section: "lab"},
   ]},
-  "Unidad III": {title: "Seguridad e implantación", topics: [
-    {name: "Autenticación", text: "Argon2id, JWT RS256 y refresh en cookie HttpOnly.", concept: "Identificación", feature: "Inicio de sesión", state: "implementado", section: "security"},
-    {name: "Autorización y roles", text: "Comprador, organizador y administrador, aplicados en el backend.", concept: "Control de acceso", feature: "Permisos", state: "implementado", section: "security"},
-    {name: "Protección de QR", text: "El código es una credencial de un solo uso.", concept: "Protección de credenciales", feature: "Entradas QR", state: "pendiente", section: "security"},
-    {name: "Gestión de secretos", text: "Archivos de secreto fuera del repositorio.", concept: "Secretos", feature: "Credenciales", state: "implementado", section: "security"},
-    {name: "Comunicaciones", text: "HTTPS opcional; el tráfico interno no está cifrado.", concept: "Protección en tránsito", feature: "Comunicaciones", state: "configurado", section: "security"},
-    {name: "Modelos de implantación", text: "Local, LAN y externo opcional.", concept: "Implantación", feature: "Implantación", state: "configurado", section: "security"},
-    {name: "Auditoría de acciones", text: "Acciones sensibles sin datos secretos.", concept: "Trazabilidad", feature: "Auditoría", state: "pendiente", section: "security"},
-    {name: "Pruebas de seguridad", text: "Autenticación probada; permisos y QR por comprobar.", concept: "Verificación", feature: "docs/PREPARACION_EXPOSICION.md", state: "pendiente", section: "evidence"},
-    {name: "Caso de estudio", text: "Venta distribuida con concurrencia y tolerancia a fallos.", concept: "Integración", feature: "docs/PREPARACION_EXPOSICION.md", state: "propuesto", section: "evidence"},
+  "Unidad III": {title: "Seguridad, modelos de implantación y casos de estudio", topics: [
+    {name: "Tríada CIA", text: "Confidencialidad (Argon2id, secretos), integridad (JWT y QR firmados, invariante) y disponibilidad (3 PC, failover).", concept: "Confidencialidad, integridad, disponibilidad", feature: "Seguridad e implantación", state: "implementado", section: "security"},
+    {name: "Autenticación", text: "Contraseña con Argon2id y token JWT RS256 de 10 min; la contraseña viaja solo al iniciar sesión, luego se usa el token (idea similar a los tickets de Kerberos).", concept: "Autenticación distribuida", feature: "Inicio de sesión", state: "implementado", section: "security"},
+    {name: "MFA", text: "Verificación en dos pasos con código TOTP de Google o Microsoft Authenticator: algo que sabes y algo que tienes.", concept: "Autenticación multifactor", feature: "Usuarios y roles · Mi verificación en dos pasos", state: "implementado", section: "users"},
+    {name: "Fuerza bruta y reenvío", text: "Bloqueo temporal tras 5 intentos fallidos (compartido por las 3 PC); códigos MFA, QR y claves de idempotencia de un solo uso.", concept: "Ataques de fuga, alteración y reenvío", feature: "Usuarios y roles", state: "implementado", section: "users"},
+    {name: "Control de acceso (RBAC)", text: "Comprador, organizador y administrador, comprobados en el backend.", concept: "RBAC y privilegio mínimo", feature: "Usuarios y roles", state: "implementado", section: "users"},
+    {name: "Protección en tránsito", text: "Entre PC el tráfico va cifrado y autenticado por Tailscale (WireGuard); dentro de cada PC, entre contenedores, va sin cifrar. HTTPS en el navegador queda como mejora.", concept: "TLS y mTLS", feature: "Seguridad e implantación · comunicaciones", state: "configurado", section: "security"},
+    {name: "Defensa de la red", text: "Firewall de Windows limitado a Tailscale y solo los puertos necesarios. No hay IDS: el Historial de incidentes alerta caídas, no ataques.", concept: "Firewall e IDS", feature: "Historial de incidentes", state: "configurado", section: "incidents"},
+    {name: "Gestión de secretos", text: "Claves en archivos fuera del código; el algoritmo es público y el secreto está en la clave.", concept: "Secretos", feature: "Credenciales", state: "implementado", section: "security"},
+    {name: "Modelos de arquitectura", text: "Cliente-servidor, multinivel (presentación, negocio, datos) y microservicios; híbrido: PC iguales pero una base principal por dominio.", concept: "Arquitecturas distribuidas", feature: "Mapa de la arquitectura", state: "implementado", section: "observability"},
+    {name: "Modelos de computación e implantación", text: "Computación en clúster, implantación local (on-premises) en las PC del laboratorio unidas por red privada. Despliegue en nube preparado, no usado.", concept: "Clúster, on-premises, nube", feature: "Centro de Control", state: "implementado", section: "cluster"},
+    {name: "Auditoría", text: "Accesos denegados, cambios de rol, MFA y bloqueos quedan registrados sin datos secretos.", concept: "Trazabilidad", feature: "Seguridad e implantación · auditoría", state: "implementado", section: "security"},
+    {name: "Caso de estudio", text: "Venta distribuida de entradas con concurrencia, caída de PC y seguridad; comparación con GFS, Dynamo, Spanner, Kafka y Netflix.", concept: "Integración", feature: "Pestaña Casos de estudio", state: "implementado", section: "evidence"},
   ]},
 };
+const ACADEMIC_CASES = [
+  ["Google File System", "Archivos en fragmentos replicados 3 veces; un maestro coordina.", "Cada base tiene 3 copias en PC distintas; Patroni + etcd hacen de coordinador, pero sin un maestro único: se elige por votación."],
+  ["Amazon Dynamo", "Prioriza disponibilidad (AP): siempre acepta escrituras y reconcilia después.", "NEXUSTIX prioriza consistencia (CP): vender un asiento dos veces es peor que esperar 30 s."],
+  ["Google Spanner", "Transacciones globales con relojes muy precisos (TrueTime) y consenso Paxos.", "Relojes con Cristian/Berkeley y orden con Lamport/vectorial; consenso Raft en etcd; Saga en vez de transacción global."],
+  ["Apache Kafka", "Publicación/suscripción: los servicios se desacoplan mediante un registro de eventos.", "El outbox cumple el papel de cola durable; un broker queda como mejora si crecen los servicios."],
+  ["Netflix", "Aislamiento de fallos, reintentos, circuit breaker y Chaos Monkey (fallas provocadas).", "Compras tiene circuit breaker y reintentos idempotentes hacia Eventos; el modo degradado aísla fallas; el Laboratorio de Resiliencia provoca fallas controladas."],
+];
 let ACADEMIC_TAB = "Inicio";
 let ACADEMIC_REPORTS = null;
 let ACADEMIC_SCENARIOS = [];
@@ -90,6 +101,10 @@ function academicEvidenceHtml() {
   return `<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Escenario</th><th scope="col">Nombre</th><th scope="col">Estado</th><th scope="col">Reporte</th></tr></thead><tbody>${rows.map(row => `<tr><td>${adminText(row.id)}</td><td>${adminText(row.name)}</td><td>${adminText(row.status)}</td><td>${row.report ? `<button type="button" class="button button-outline" data-open-evidence="${adminText(row.report.id)}">Ver</button>` : "—"}</td></tr>`).join("")}</tbody></table></div><p class="field-help">Un reporte registrado indica que existe una prueba capturada; su resultado lo evalúa quien la ejecutó. Información faltante y lista de evidencias: docs/MATRIZ_CUMPLIMIENTO_SISOPE2.md y docs/PREPARACION_EXPOSICION.md. Línea base anterior a las últimas mejoras: docs/RESULTADOS_DISTRIBUIDO.md.</p>`;
 }
 
+function academicCasesHtml() {
+  return `<h3>Casos de estudio · comparación con sistemas reales</h3><div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Sistema</th><th scope="col">Qué hace</th><th scope="col">En NEXUSTIX</th></tr></thead><tbody>${ACADEMIC_CASES.map(row => `<tr>${row.map(cell => `<td>${adminText(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
 function academicHomeHtml() {
   const units = Object.entries(ACADEMIC_UNITS).map(([name, unit]) => {
     const states = unit.topics.map(academicState);
@@ -102,10 +117,10 @@ function academicHomeHtml() {
 }
 
 function renderAcademicPanel() {
-  const tabs = ["Inicio", ...Object.keys(ACADEMIC_UNITS), "Evidencias"];
+  const tabs = ["Inicio", ...Object.keys(ACADEMIC_UNITS), "Casos de estudio", "Evidencias"];
   adminNode("academic-tabs").innerHTML = tabs.map(tab => `<button type="button" class="button button-outline" data-academic-tab="${adminText(tab)}" aria-pressed="${tab === ACADEMIC_TAB}">${adminText(tab)}</button>`).join("");
   const unit = ACADEMIC_UNITS[ACADEMIC_TAB];
-  adminNode("academic-content").innerHTML = unit ? `<h3>${adminText(ACADEMIC_TAB)} · ${adminText(unit.title)}</h3><div class="academic-grid">${unit.topics.map(academicTopicCard).join("")}</div>` : ACADEMIC_TAB === "Evidencias" ? academicEvidenceHtml() : academicHomeHtml();
+  adminNode("academic-content").innerHTML = unit ? `<h3>${adminText(ACADEMIC_TAB)} · ${adminText(unit.title)}</h3><div class="academic-grid">${unit.topics.map(academicTopicCard).join("")}</div>` : ACADEMIC_TAB === "Evidencias" ? academicEvidenceHtml() : ACADEMIC_TAB === "Casos de estudio" ? academicCasesHtml() : academicHomeHtml();
   document.querySelectorAll("#view-admin [data-admin-panel='academic'] [data-academic-tab]").forEach(button => button.addEventListener("click", () => { ACADEMIC_TAB = button.dataset.academicTab; renderAcademicPanel(); }));
   document.querySelectorAll("#view-admin [data-admin-panel='academic'] [data-academic-open]").forEach(button => button.addEventListener("click", () => openAdminSection(button.dataset.academicOpen)));
   bindEvidenceLinks(adminNode("academic-content"));

@@ -36,8 +36,10 @@ def install(app, get_db, require_admin):
 
     @app.get("/diagnostico/metricas")
     def metrics(_admin=Depends(require_admin)):
+        from shared import process_info
         snapshot = getattr(app.state, "http_metrics_snapshot", None)
-        return snapshot() if snapshot else {"disponible": False, "motivo": "Sin instrumentación en este proceso"}
+        data = snapshot() if snapshot else {"disponible": False, "motivo": "Sin instrumentación en este proceso"}
+        return {**data, **process_info.snapshot()}
 
     @app.get("/diagnostico/db")
     def database(db=Depends(get_db), _admin=Depends(require_admin)):

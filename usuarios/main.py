@@ -14,6 +14,7 @@ from typing import Literal
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError, VerificationError
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import func, text
@@ -23,12 +24,13 @@ from sqlalchemy.orm import Session
 from shared.auth_tokens import authenticated_claims, issue_access_token, read_private_key
 from database import Base, SessionLocal, engine, get_db
 from models import RefreshSession, Usuario
+import totp
 
 PASSWORDS = PasswordHasher()
 DUMMY_PASSWORD_HASH = PASSWORDS.hash("not-a-real-account-password")
 REFRESH_COOKIE = "nexustix_refresh"
 REFRESH_DAYS = int(os.getenv("REFRESH_TOKEN_TTL_DAYS", "30"))
-AUTH_MIGRATION_REVISION = "20261102_02"
+AUTH_MIGRATION_REVISION = "20261119_03"
 
 
 class RegisterRequest(BaseModel):
@@ -42,6 +44,19 @@ class LoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: EmailStr
     password: str = Field(min_length=1, max_length=256)
+    codigo: str | None = Field(default=None, max_length=12)
+
+
+class MfaCodeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    codigo: str = Field(min_length=6, max_length=12)
+
+
+# Defensa contra fuerza bruta: tras LOGIN_MAX_ATTEMPTS fallos seguidos la cuenta
+# queda bloqueada LOGIN_LOCK_SECONDS. El contador vive en la base (no en memoria),
+# así que es el mismo para las instancias de Usuarios de todas las PC.
+LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
+LOGIN_LOCK_SECONDS = int(os.getenv("LOGIN_LOCK_SECONDS", "120"))
 
 
 def esperar_bd():
@@ -222,21 +237,141 @@ def register(datos: RegisterRequest, response: Response, db: Session = Depends(g
     return _finish_auth_response(user, refresh_token, access_token, response)
 
 
+def _aware(moment: datetime | None) -> datetime | None:
+    return moment.replace(tzinfo=timezone.utc) if moment is not None and moment.tzinfo is None else moment
+
+
+def _locked_response(locked_until: datetime, now: datetime):
+    locked_until = _aware(locked_until)
+    seconds = max(1, int((locked_until - now).total_seconds()))
+    return JSONResponse(status_code=429, headers={"Retry-After": str(seconds)}, content={
+        "detail": f"Cuenta bloqueada temporalmente por {LOGIN_MAX_ATTEMPTS} intentos fallidos. Intenta de nuevo en {seconds} s.",
+        "bloqueado": True, "segundos": seconds, "bloqueado_hasta": locked_until.isoformat()})
+
+
+def _register_failure(db: Session, user: Usuario, now: datetime, motivo: str):
+    user.failed_logins = (user.failed_logins or 0) + 1
+    locked = user.failed_logins >= LOGIN_MAX_ATTEMPTS
+    if locked:
+        user.locked_until = now + timedelta(seconds=LOGIN_LOCK_SECONDS)
+        user.failed_logins = 0
+    db.commit()
+    logging.getLogger("nexustix.audit").warning(json.dumps({"accion": "login_fallido", "motivo": motivo, "actor": str(user.id),
+        "bloqueo": locked, "instancia": os.getenv("INSTANCE_ID", "usuarios"), "momento": now.isoformat()}))
+    return locked
+
+
 @app.post("/auth/login")
 def login(datos: LoginRequest, response: Response, db: Session = Depends(get_db)):
     email = str(datos.email).strip().lower()
-    user = db.query(Usuario).filter(func.lower(func.trim(Usuario.email)) == email).first()
+    # FOR UPDATE: dos intentos simultáneos contra PC distintas no pierden un fallo del contador.
+    user = db.query(Usuario).filter(func.lower(func.trim(Usuario.email)) == email).with_for_update().first()
+    now = datetime.now(timezone.utc)
+    if user and user.locked_until and _aware(user.locked_until) > now:
+        db.rollback()
+        return _locked_response(user.locked_until, now)
     password_hash = user.password_hash if user and user.password_hash else DUMMY_PASSWORD_HASH
     try:
         valid_password = PASSWORDS.verify(password_hash, datos.password)
     except (VerifyMismatchError, VerificationError, InvalidHashError):
         valid_password = False
     if not valid_password or not user or user.auth_status != "active" or user.estado != "activo":
+        if user and user.auth_status == "active" and _register_failure(db, user, now, "contraseña"):
+            return _locked_response(user.locked_until, now)
+        db.rollback()
         raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos")
+    if user.mfa_enabled and user.mfa_secret:
+        if not datos.codigo:
+            db.rollback()
+            # La contraseña fue correcta: se pide el segundo factor sin emitir ningún token.
+            return JSONResponse(status_code=401, content={"detail": "Ingresa el código de 6 dígitos de tu app de autenticación.", "mfa_requerido": True})
+        step = totp.verify(user.mfa_secret, datos.codigo, user.mfa_last_step)
+        if step is None:
+            if _register_failure(db, user, now, "codigo_mfa"):
+                return _locked_response(user.locked_until, now)
+            return JSONResponse(status_code=401, content={"detail": "Código de verificación incorrecto o ya usado.", "mfa_requerido": True})
+        user.mfa_last_step = step
+    user.failed_logins = 0
+    user.locked_until = None
     access_token = _access_token(user)
     refresh_token, _ = _new_session(db, user)
     db.commit()
     return _finish_auth_response(user, refresh_token, access_token, response)
+
+
+@app.get("/auth/mfa")
+def mfa_status(user: Usuario = Depends(get_authenticated_user)):
+    return {"activo": bool(user.mfa_enabled), "pendiente": bool(user.mfa_secret and not user.mfa_enabled),
+            "intentos_permitidos": LOGIN_MAX_ATTEMPTS, "bloqueo_segundos": LOGIN_LOCK_SECONDS}
+
+
+def _qr_svg(text_value: str) -> str | None:
+    try:
+        import io
+        import qrcode
+        import qrcode.image.svg
+    except ImportError:
+        return None
+    output = io.BytesIO()
+    qrcode.make(text_value, image_factory=qrcode.image.svg.SvgPathImage, box_size=8, border=2).save(output)
+    return output.getvalue().decode("utf-8")
+
+
+@app.post("/auth/mfa/configurar")
+def mfa_setup(db: Session = Depends(get_db), actor: Usuario = Depends(get_authenticated_user)):
+    user = db.query(Usuario).filter(Usuario.id == actor.id).with_for_update().one()
+    if user.mfa_enabled:
+        raise HTTPException(status_code=409, detail="El MFA ya está activo. Desactívalo antes de configurarlo de nuevo.")
+    user.mfa_secret = totp.new_secret()
+    user.mfa_last_step = None
+    db.commit()
+    uri = totp.provisioning_uri(user.mfa_secret, user.email)
+    return {"secreto": user.mfa_secret, "uri": uri, "qr_svg": _qr_svg(uri),
+            "instrucciones": "Escanea el QR o escribe el secreto en Google Authenticator o Microsoft Authenticator y confirma con el código de 6 dígitos."}
+
+
+@app.post("/auth/mfa/activar")
+def mfa_enable(datos: MfaCodeRequest, db: Session = Depends(get_db), actor: Usuario = Depends(get_authenticated_user)):
+    user = db.query(Usuario).filter(Usuario.id == actor.id).with_for_update().one()
+    if not user.mfa_secret:
+        raise HTTPException(status_code=409, detail="Primero genera el secreto con Configurar MFA.")
+    step = totp.verify(user.mfa_secret, datos.codigo, user.mfa_last_step)
+    if step is None:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Código incorrecto. Revisa que la hora del celular sea automática.")
+    user.mfa_enabled = True
+    user.mfa_last_step = step
+    db.commit()
+    security_event("mfa_activado", "usuarios", "permitido", user)
+    return {"activo": True}
+
+
+@app.post("/auth/mfa/desactivar")
+def mfa_disable(datos: MfaCodeRequest, db: Session = Depends(get_db), actor: Usuario = Depends(get_authenticated_user)):
+    user = db.query(Usuario).filter(Usuario.id == actor.id).with_for_update().one()
+    if not user.mfa_enabled or not user.mfa_secret:
+        raise HTTPException(status_code=409, detail="El MFA no está activo.")
+    if totp.verify(user.mfa_secret, datos.codigo, user.mfa_last_step) is None:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Código incorrecto.")
+    user.mfa_enabled = False
+    user.mfa_secret = None
+    user.mfa_last_step = None
+    db.commit()
+    security_event("mfa_desactivado", "usuarios", "permitido", user)
+    return {"activo": False}
+
+
+@app.post("/usuarios/{user_id}/desbloquear")
+def unlock_user(user_id: int, db: Session = Depends(get_db), admin: Usuario = Depends(require_admin)):
+    user = db.query(Usuario).filter(Usuario.id == user_id).with_for_update().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    user.failed_logins = 0
+    user.locked_until = None
+    db.commit()
+    security_event("desbloqueo", f"usuarios/{user_id}", "permitido", admin)
+    return {"id": user.id, "bloqueado": False}
 
 
 @app.post("/auth/refresh")
@@ -322,7 +457,11 @@ def health(response: Response, db: Session = Depends(get_db)):
 
 @app.get("/usuarios")
 def listar_usuarios(db: Session = Depends(get_db), _admin: Usuario = Depends(require_admin)):
-    return [{"id": user.id, "nombre": user.nombre, "email": user.email, "estado": user.estado, "role": user.role} for user in db.query(Usuario).all()]
+    now = datetime.now(timezone.utc)
+    return [{"id": user.id, "nombre": user.nombre, "email": user.email, "estado": user.estado, "role": user.role,
+             "mfa": bool(user.mfa_enabled), "bloqueado": bool(user.locked_until and _aware(user.locked_until) > now),
+             "bloqueado_hasta": _aware(user.locked_until).isoformat() if user.locked_until and _aware(user.locked_until) > now else None}
+            for user in db.query(Usuario).all()]
 
 
 @app.get("/usuarios/{user_id}")

@@ -134,7 +134,7 @@ def set_stock(s, value, event_id=SYNTHETIC_EVENT):
 def test_fresh_install_migrations_reach_expected_revisions_and_are_idempotent(pg_url_factory, monkeypatch):
     from sqlalchemy import create_engine, inspect, text
 
-    for service, revision, tables in (("usuarios", "20261102_02", {"usuarios", "refresh_sessions"}),
+    for service, revision, tables in (("usuarios", "20261119_03", {"usuarios", "refresh_sessions"}),
                                       ("compras", "20261102_03", {"compras", "journal_compras", "purchase_idempotency"})):
         url = pg_url_factory()
         assert migrate(service, url, monkeypatch) == 0

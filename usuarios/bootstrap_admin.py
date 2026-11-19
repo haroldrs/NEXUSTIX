@@ -29,7 +29,7 @@ from models import RefreshSession, Usuario
 
 EMAIL_ADAPTER = TypeAdapter(EmailStr)
 PASSWORDS = PasswordHasher()
-REVISION = "20261102_02"
+REVISION = "20261119_03"
 
 
 def _password_from_file(parser: argparse.ArgumentParser, path: Path) -> str:
