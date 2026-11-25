@@ -1,4 +1,8 @@
-# PostgreSQL multinodo: recuperación operada y sin split-brain
+# PostgreSQL multinodo: recuperación manual (modo sin Patroni)
+
+> Este procedimiento aplica solo a inventarios **sin** `coordination.mode: patroni`.
+> Con Patroni (los ejemplos `6-dos-pc-arbitro.yml` y `7-tres-pc-patroni.yml`)
+> la promoción y la reincorporación son automáticas: ver [ALTA_DISPONIBILIDAD.md](ALTA_DISPONIBILIDAD.md).
 
 Este procedimiento pertenece exclusivamente a `despliegue-nodos`. Los comandos
 son instrucciones para el operador; no se ejecutan al generar el inventario.
@@ -22,10 +26,7 @@ El perfil de alta disponibilidad prepara componentes redundantes y recuperación
 manual: no garantiza continuidad automática, RTO determinado ni RPO cero.
 Si no puede probarse el aislamiento del primario anterior, no se promueve otro.
 
-La evaluación de Patroni, consenso y fencing para Fedora/Windows WSL está en
-[Coordinación y acceso estable](COORDINACION.md). Su integración automática
-permanece bloqueada por garantías físicas e infraestructura todavía no
-disponibles. El Centro de Control sólo observa; no ejecuta este procedimiento.
+Para failover automático por consenso use el modo Patroni descrito en [ALTA_DISPONIBILIDAD.md](ALTA_DISPONIBILIDAD.md).
 
 Con replicación asíncrona pueden perderse commits confirmados que no llegaron
 a una réplica. Con replicación síncrona las escrituras esperan las confirmaciones

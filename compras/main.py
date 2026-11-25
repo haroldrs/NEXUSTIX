@@ -2099,3 +2099,6 @@ diagnostics.install(app, get_db, require_admin)
 
 from shared import operations
 operations.install(app, checkout_models, get_db, require_admin, EVENTOS_URL)
+
+from shared import coordination
+coordination.install(app, "compras", require_admin)

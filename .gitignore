@@ -47,16 +47,12 @@ replication-password
 admin-password
 frontend-config.js
 *-admin-password
-despliegue-pc/generated/
-despliegue-pc/config/
 despliegue-nodos/generated/
 fencing.json
 primary.FENCED
 
 # Datos y artefactos; conservar los SQL/migraciones fuente.
 resultados/
-docs/evidencias/*
-!docs/evidencias/README.md
 backups/
 respaldos/
 volumes/
@@ -92,5 +88,5 @@ wal_archive/
 Thumbs.db
 .idea/
 .vscode/
-# Documento académico externo: revisar permiso/pertinencia antes de publicar.
-/ESTRUCTURA DEL TRABAJO FINAL - SISOPE-2.pdf
+# Material externo del curso y paquetes de despliegue (contienen claves).
+*.pdf

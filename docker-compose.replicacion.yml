@@ -16,9 +16,9 @@
 # Qué NO aporta:
 # - Failover automático: la promoción la decide un operador (db_ha.py promote),
 #   que primero aísla (fencing) al primario anterior. Con dos nodos no hay
-#   quórum para decidir solo sin riesgo de dos primarios (ver docs/BASES_DE_DATOS.md).
+#   quórum para decidir solo sin riesgo de dos primarios.
 # - Tolerancia a la caída del host: ambos nodos corren en la misma máquina
-#   salvo que se distribuyan (docs/ARQUITECTURA_DOS_PC.md).
+#   salvo que se distribuyan; para eso use despliegue-nodos/ (varias PC con failover automático).
 
 x-pg-replica-healthcheck: &pg-replica-healthcheck
   test: ["CMD", "nexustix-healthcheck.sh"]

@@ -133,13 +133,14 @@ def test_lb_retries_only_idempotent_purchase_endpoint():
 
 def test_frontend_registers_login_on_load_not_after_a_purchase():
     app_js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
-    submit = app_js[app_js.index("async function submitPurchase"):app_js.index("async function loadAdminEvents")]
+    checkout_js = (ROOT / "frontend" / "checkout.js").read_text(encoding="utf-8")
+    submit = checkout_js
     on_load = app_js[app_js.index('document.addEventListener("DOMContentLoaded"'):]
     for wiring in ('document.getElementById("auth-open").addEventListener',
                    'document.getElementById("auth-form").addEventListener("submit", submitAuth)'):
         assert wiring not in submit, "el inicio de sesión no puede depender de haber comprado"
         assert wiring in on_load
-    assert "restoreSession();" in on_load
+    assert "restoreSession()" in on_load
     assert not (ROOT / "frontend" / "app.staging.js").exists(), "demo y pruebas comparten un único app.js"
 
 

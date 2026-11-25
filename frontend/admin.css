@@ -215,3 +215,5 @@
 .admin-panel .workspace-card, .admin-panel section, .admin-panel article { min-width: 0; }
 .section-help { padding: .85rem 1rem; color: #33413a; background: #eef3ec; border-left: 4px solid var(--green); border-radius: 8px; font-size: .84rem; line-height: 1.5; }.section-help p { margin: 0 0 .25rem; }.section-help-note { color: #55635b; font-size: .78rem; margin-top: .4rem !important; }
 @media (max-width: 700px) { .admin-panel .admin-facts { grid-template-columns: minmax(0, 1fr); gap: .1rem .8rem; } .admin-panel .admin-facts dd { margin-bottom: .55rem; } }
+.coord-state { display: inline-block; padding: 2px 9px; font-size: 12px; font-weight: 700; border-radius: 99px; background: #e7ece6; }.coord-ok { color: #1f6b3a; background: #e3f3e8; }.coord-warn { color: #8a5a00; background: #fbf0d9; }.coord-bad { color: var(--red); background: var(--red-soft); }
+#coord-directory td .button { margin: 2px; padding: 4px 10px; font-size: 12px; }

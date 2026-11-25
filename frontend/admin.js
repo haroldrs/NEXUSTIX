@@ -63,6 +63,7 @@ async function adminBusy(button, operation) {
 
 function clearAdminWorkspace() {
   stopClusterPolling();
+  if (typeof stopCoordinationPolling === "function") stopCoordinationPolling();
   clearInsights();
   ADMIN_GENERATION += 1;
   ADMIN_CLUSTER = null; ADMIN_DEPLOYMENT_OBSERVATION = null; ADMIN_CLUSTER_SELECTED = null; ADMIN_CLUSTER_STALE = true; ADMIN_CLUSTER_BASE = null; ADMIN_CLUSTER_EVENTS.clear(); ADMIN_CLUSTER_CANDIDATES.clear(); ADMIN_CLUSTER_LAST_NODES.clear();
@@ -74,7 +75,7 @@ function clearAdminWorkspace() {
     if (adminNode(id)) adminNode(id).textContent = "Sin consultar.";
   });
   ["event-result", "access-result", "role-result", "lab-report-status", "evidence-import-status", "admin-global-notice", "incident-scope", "service-check-time", "last-refresh", "cluster-announcement-status"].forEach(id => { if (adminNode(id)) adminNode(id).textContent = ""; });
-  ["event-editor", "access-form", "role-form", "trace-form", "lab-report-form", "evidence-import-form", "cluster-announcement-form"].forEach(id => adminNode(id)?.reset());
+  ["event-editor", "access-form", "role-form", "unlock-form", "mfa-form", "trace-form", "lab-report-form", "evidence-import-form", "cluster-announcement-form"].forEach(id => adminNode(id)?.reset());
   if (adminNode("event-editor")) resetEventEditor();
   if (adminNode("lab-scenario")) adminNode("lab-scenario").innerHTML = '<option value="">Sin consultar</option>';
   if (adminNode("evidence-report")) adminNode("evidence-report").hidden = true;
@@ -98,7 +99,8 @@ function openAdminSection(section = "summary") {
   });
   document.querySelectorAll("[data-admin-panel]").forEach(panel => { panel.hidden = panel.dataset.adminPanel !== section; });
   adminNode("admin-session-note").textContent = "Sesión administradora · acceso verificado por cada servicio";
-  const loaders = {summary: loadAdminSummary, events: loadAdminEvents, sales: loadAdminSales, refunds: loadAdminRefunds, users: loadAdminUsers, cluster: refreshAdminCluster, services: refreshAdminSnapshot, databases: refreshAdminSnapshot, consistency: refreshAdminSnapshot, security: loadSecurityPanel, academic: loadAcademicPanel, observability: refreshObservability, lab: refreshLab, incidents: loadAdminIncidents, evidence: loadAdminEvidence};
+  const loaders = {summary: loadAdminSummary, events: loadAdminEvents, sales: loadAdminSales, refunds: loadAdminRefunds, users: loadAdminUsers, cluster: refreshAdminCluster, services: refreshAdminSnapshot, databases: refreshAdminSnapshot, consistency: refreshAdminSnapshot, security: loadSecurityPanel, academic: loadAcademicPanel, observability: refreshObservability, lab: refreshLab, incidents: loadAdminIncidents, evidence: loadAdminEvidence, coordination: loadCoordinationPanel};
+  if (section !== "coordination") stopCoordinationPolling();
   loaders[section]?.();
 }
 
@@ -339,7 +341,49 @@ async function loadAdminUsers() {
   if (!adminAllowed()) return;
   const result = await adminRequest(`${CONFIG.USUARIOS_URL}/usuarios`);
   if (result.stale) return;
-  adminNode("admin-users").innerHTML = result.ok && Array.isArray(result.data) ? adminTable(result.data, [["ID", "id"], ["Nombre", "nombre"], ["Rol", "role"]], "No hay usuarios registrados.") : adminEmpty(adminError(result));
+  adminNode("admin-users").innerHTML = result.ok && Array.isArray(result.data) ? adminTable(result.data, [["ID", "id"], ["Nombre", "nombre"], ["Rol", "role"], ["MFA", row => row.mfa ? "Activo" : "No"], ["Bloqueo", row => row.bloqueado ? `Hasta ${adminDate(row.bloqueado_hasta)}` : "—"]], "No hay usuarios registrados.") : adminEmpty(adminError(result));
+  await loadMfaStatus();
+}
+
+let MFA_ACTION = null;
+async function loadMfaStatus() {
+  const result = await adminRequest(`${CONFIG.USUARIOS_URL}/auth/mfa`);
+  if (result.stale) return;
+  const active = !!result.data?.activo;
+  adminNode("mfa-status").textContent = !result.ok ? adminError(result)
+    : active ? `MFA ACTIVO en tu cuenta. Bloqueo tras ${result.data.intentos_permitidos} intentos fallidos durante ${result.data.bloqueo_segundos} s.`
+    : `MFA desactivado en tu cuenta. Bloqueo tras ${result.data.intentos_permitidos} intentos fallidos durante ${result.data.bloqueo_segundos} s.`;
+  adminNode("mfa-configure").textContent = active ? "Desactivar MFA" : "Configurar MFA";
+  adminNode("mfa-configure").dataset.active = active ? "1" : "";
+}
+async function startMfaAction() {
+  const active = adminNode("mfa-configure").dataset.active === "1";
+  adminNotice("mfa-result", "");
+  if (active) {
+    MFA_ACTION = "desactivar"; adminNode("mfa-setup").hidden = true;
+    adminNode("mfa-form").hidden = false; adminNode("mfa-submit").textContent = "Desactivar con este código"; adminNode("mfa-code").focus(); return;
+  }
+  const result = await adminRequest(`${CONFIG.USUARIOS_URL}/auth/mfa/configurar`, {method: "POST"});
+  if (result.stale) return;
+  if (!result.ok) { adminNotice("mfa-result", adminError(result), "error"); return; }
+  MFA_ACTION = "activar";
+  adminNode("mfa-secret").textContent = result.data.secreto;
+  const qr = adminNode("mfa-qr");
+  if (result.data.qr_svg) { qr.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(result.data.qr_svg)}`; qr.hidden = false; } else qr.hidden = true;
+  adminNode("mfa-setup").hidden = false; adminNode("mfa-form").hidden = false;
+  adminNode("mfa-submit").textContent = "Activar con este código"; adminNode("mfa-code").focus();
+  adminNotice("mfa-result", result.data.instrucciones, "info");
+}
+async function submitMfaCode(event) {
+  event.preventDefault();
+  const code = adminNode("mfa-code").value.replace(/\s/g, "");
+  const result = await adminRequest(`${CONFIG.USUARIOS_URL}/auth/mfa/${MFA_ACTION === "desactivar" ? "desactivar" : "activar"}`,
+    {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({codigo: code})});
+  if (result.stale) return;
+  if (!result.ok) { adminNotice("mfa-result", adminError(result), "error"); return; }
+  adminNode("mfa-form").reset(); adminNode("mfa-form").hidden = true; adminNode("mfa-setup").hidden = true;
+  adminNotice("mfa-result", result.data.activo ? "MFA activado. Desde ahora, al iniciar sesión se pedirá el código del celular." : "MFA desactivado.", "success");
+  await loadAdminUsers();
 }
 
 function clusterVisible() {
@@ -886,6 +930,18 @@ function initializeAdmin() {
   adminNode("cluster-announcement-form").addEventListener("submit", submitClusterAnnouncement);
   adminNode("lab-export-observation").addEventListener("click", exportObservedSnapshot);
   adminNode("admin-sales-event").addEventListener("change", () => { ["admin-sales", "admin-orders", "admin-tickets"].forEach(id => ADMIN_PAGES.delete(id)); loadAdminSales(); });
+  adminNode("mfa-configure").addEventListener("click", event => adminBusy(event.currentTarget, startMfaAction));
+  adminNode("mfa-form").addEventListener("submit", event => adminBusy(adminNode("mfa-submit"), () => submitMfaCode(event)));
+  adminNode("unlock-form").addEventListener("submit", event => {
+    event.preventDefault(); const form = event.currentTarget;
+    adminBusy(form.querySelector("button"), async () => {
+      const id = Number(new FormData(form).get("user_id"));
+      const result = await adminRequest(`${CONFIG.USUARIOS_URL}/usuarios/${id}/desbloquear`, {method: "POST"});
+      if (result.stale) return;
+      adminNotice("unlock-result", result.ok ? `Cuenta #${id} desbloqueada.` : adminError(result), result.ok ? "success" : "error");
+      if (result.ok) await loadAdminUsers();
+    });
+  });
   adminNode("role-form").addEventListener("submit", event => {
     event.preventDefault(); const form = event.currentTarget;
     adminBusy(form.querySelector("button"), async () => {

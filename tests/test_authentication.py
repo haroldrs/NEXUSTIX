@@ -927,13 +927,14 @@ def test_frontend_keeps_access_token_only_in_memory_and_refresh_is_http_only():
 
 
 def test_purchase_frontends_send_idempotency_key_and_cors_allows_it():
-    main_frontend = (ROOT / "frontend/app.js").read_text(encoding="utf-8")
-    # Demo y pruebas sirven el mismo app.js; solo cambia config.js.
-    staging_frontend = main_frontend
+    # La compra vive en checkout.js: la clave se genera una vez por pedido y se
+    # reenvía en cada reintento; app.js solo reintenta solicitudes idempotentes.
+    checkout = (ROOT / "frontend/checkout.js").read_text(encoding="utf-8")
+    app_js = (ROOT / "frontend/app.js").read_text(encoding="utf-8")
     purchases_main = (ROOT / "compras/main.py").read_text(encoding="utf-8")
-    for script in (main_frontend, staging_frontend):
-        assert '"Idempotency-Key": key' in script
-        assert "PENDING_PURCHASE_KEYS" in script
+    assert '"Idempotency-Key": record.key' in checkout
+    assert "PENDING_REVIEW" in checkout
+    assert 'has("Idempotency-Key")' in app_js
     assert '"Idempotency-Key"' in purchases_main[purchases_main.index("allow_headers="):purchases_main.index(")", purchases_main.index("allow_headers="))]
 
 

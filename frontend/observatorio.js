@@ -232,10 +232,10 @@ function renderInsightProcesses() {
   const target = adminNode("insight-processes"), source = insightSource();
   if (!source) { target.innerHTML = adminEmpty("Sin captura disponible."); return; }
   const metrics = new Map(source.metrics.map(row => [row.componente, row]));
-  const rows = source.components.filter(component => component.tipo !== "ruta");
+  // Solo los procesos de las APIs exponen sus datos de /proc; gateways y bases se ven en sus secciones.
+  const rows = source.components.filter(component => component.tipo === "api");
   const measure = (component, key, suffix = "") => { const value = metrics.get(component.id)?.[key]; return value === null || value === undefined ? INSIGHT_NOT_AVAILABLE : `${value}${suffix}`; };
-  const labels = insightLabels(source);
-  target.innerHTML = adminTable(rows, [["Servicio", row => row.nombre || row.id], ["Instancia", insightInstance], ["Nodo", row => row.nodo || (insightIsLocal() ? "Esta computadora" : INSIGHT_NOT_IDENTIFIED)], ["Contenedor", () => INSIGHT_NOT_AVAILABLE], ["Estado", row => insightEvidence(row, source).label], ["Dependencias", row => adminList(row.dependencias).map(id => labels.get(id) || id).join(" · ") || "Ninguna declarada"], ["Solicitudes", row => measure(row, "solicitudes")], ["Errores HTTP", row => measure(row, "errores_http")], ["Latencia media", row => measure(row, "latencia_media_ms", " ms")], ["Métricas desde", row => { const since = metrics.get(row.id)?.desde; return since ? adminDate(since) : INSIGHT_NOT_AVAILABLE; }], ["PID · CPU · RAM", () => INSIGHT_NOT_AVAILABLE]], "La captura no incluye componentes.");
+  target.innerHTML = adminTable(rows, [["Servicio", row => row.nombre || row.id], ["PID", row => measure(row, "pid")], ["Estado del proceso", row => measure(row, "estado_proceso")], ["Hilos", row => measure(row, "hilos")], ["Memoria", row => measure(row, "memoria_mb", " MB")], ["CPU usada", row => measure(row, "cpu_segundos", " s")], ["Activo hace", row => measure(row, "proceso_activo_s", " s")], ["Cambios de contexto (voluntarios / forzados)", row => metrics.get(row.id)?.cambios_contexto_voluntarios === undefined ? INSIGHT_NOT_AVAILABLE : `${metrics.get(row.id).cambios_contexto_voluntarios} / ${metrics.get(row.id).cambios_contexto_forzados}`], ["Procesos en su contenedor", row => measure(row, "procesos_contenedor")], ["Solicitudes", row => measure(row, "solicitudes")], ["Latencia media", row => measure(row, "latencia_media_ms", " ms")], ["Estado", row => insightEvidence(row, source).label]], "La captura no incluye procesos de servicios.");
 }
 
 function renderInsightInstances() {

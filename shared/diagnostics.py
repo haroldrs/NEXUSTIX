@@ -36,8 +36,10 @@ def install(app, get_db, require_admin):
 
     @app.get("/diagnostico/metricas")
     def metrics(_admin=Depends(require_admin)):
+        from shared import process_info
         snapshot = getattr(app.state, "http_metrics_snapshot", None)
-        return snapshot() if snapshot else {"disponible": False, "motivo": "Sin instrumentación en este proceso"}
+        data = snapshot() if snapshot else {"disponible": False, "motivo": "Sin instrumentación en este proceso"}
+        return {**data, **process_info.snapshot()}
 
     @app.get("/diagnostico/db")
     def database(db=Depends(get_db), _admin=Depends(require_admin)):
@@ -91,6 +93,13 @@ def install(app, get_db, require_admin):
             identity = read("identidad", "SELECT current_setting('cluster_name') AS identidad_nodo, "
                 "inet_server_addr()::text AS direccion, inet_server_port() AS puerto")
             system = read("sistema", "SELECT system_identifier::text AS identificador_sistema FROM pg_control_system()")
+            if isinstance(identity, dict):
+                # Host al que libpq se conectó de verdad entre los candidatos de la URL
+                # multi-host: con Patroni, cluster_name es el del clúster, no el del nodo.
+                try:
+                    identity["host_conectado"] = db.connection().connection.dbapi_connection.info.host
+                except Exception:
+                    identity["host_conectado"] = None
             return {"disponible": True, "rol": "standby" if standby else "primario",
                 "comprobado_en": datetime.now(timezone.utc).isoformat(), "version": version,
                 "en_recuperacion": standby, "replicas": replication, "receptor_wal": receiver,

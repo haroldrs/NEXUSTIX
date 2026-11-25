@@ -305,7 +305,9 @@ def fetch(url, path, authorization=None, internal=False, deadline=None):
             headers.update(service_auth_headers())
         with requests.Session() as session:
             session.trust_env = False
-            with session.get(url + path, headers=headers, timeout=(1, 1), allow_redirects=False, stream=True) as response:
+            # Lectura hasta 3 s: entre PC unidas por Tailscale, la salud de un servicio
+            # cuya base principal está en otra PC puede superar 1 s sin estar caído.
+            with session.get(url + path, headers=headers, timeout=(1, 3), allow_redirects=False, stream=True) as response:
                 body = bytearray()
                 # Acotar también servidores que entregan lentamente el cuerpo.
                 for chunk in response.iter_content(1):
@@ -381,8 +383,10 @@ DIAGNOSTIC_KEYS = {"disponible", "rol", "comprobado_en", "version", "en_recupera
     "status", "written_lsn", "flushed_lsn", "latest_end_lsn", "last_msg_receipt_time", "recibido_lsn", "aplicado_lsn", "ultimo_replay", "replay_pausado",
     "actual_lsn", "persistido_lsn", "archived_count", "failed_count", "last_archived_time", "last_failed_time", "num_timed", "num_requested", "write_time", "sync_time",
     "buffers_written", "stats_reset", "checkpoint_lsn", "redo_lsn", "timeline_id", "checkpoint_time", "total", "activas", "maximas", "fsync", "full_page_writes", "synchronous_commit", "wal_level", "archive_mode",
-    "identidad", "identidad_nodo", "direccion", "puerto", "sistema", "identificador_sistema", "synchronous_standby_names", "transaction_read_only"}
-METRIC_KEYS = {"disponible", "servicio", "instancia", "desde", "alcance", "solicitudes", "exitosas", "errores_http", "latencia_media_ms", "latencia_max_ms", "recientes", "momento", "correlation_id", "metodo", "ruta", "status", "latencia_ms"}
+    "identidad", "identidad_nodo", "direccion", "puerto", "host_conectado", "sistema", "identificador_sistema", "synchronous_standby_names", "transaction_read_only"}
+METRIC_KEYS = {"disponible", "servicio", "instancia", "desde", "alcance", "solicitudes", "exitosas", "errores_http", "latencia_media_ms", "latencia_max_ms", "recientes", "momento", "correlation_id", "metodo", "ruta", "status", "latencia_ms",
+    "pid", "ppid", "estado_proceso", "hilos", "memoria_mb", "cpu_segundos", "proceso_activo_s",
+    "cambios_contexto_voluntarios", "cambios_contexto_forzados", "procesos_contenedor"}
 
 
 def whitelist(value, keys, depth=0):

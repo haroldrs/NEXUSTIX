@@ -71,6 +71,9 @@ services:
       # true cuando el frontend se sirva por HTTPS.
       AUTH_COOKIE_SECURE: ${NEXUSTIX_AUTH_COOKIE_SECURE:-false}
       ACCESS_TOKEN_TTL_SECONDS: ${NEXUSTIX_ACCESS_TOKEN_TTL_SECONDS:-600}
+      # Directorio de instancias y elección Bully (shared/coordination.py).
+      NEXUSTIX_COORDINATION_ID: usuarios
+      NEXUSTIX_PEERS: '[{"id":"usuarios","servicio":"usuarios","nodo":"local","url":"http://usuarios:8001","prioridad":10},{"id":"eventos","servicio":"eventos","nodo":"local","url":"http://eventos:8002","prioridad":20},{"id":"compras_1","servicio":"compras","nodo":"local","url":"http://compras1:8003","prioridad":40},{"id":"compras_2","servicio":"compras","nodo":"local","url":"http://compras2:8003","prioridad":30}]'
     secrets:
       - usuarios_database_url
       - jwt_private
@@ -119,6 +122,8 @@ services:
       JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
       EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
       FRONTEND_ORIGINS: ${NEXUSTIX_FRONTEND_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      NEXUSTIX_COORDINATION_ID: eventos
+      NEXUSTIX_PEERS: '[{"id":"usuarios","servicio":"usuarios","nodo":"local","url":"http://usuarios:8001","prioridad":10},{"id":"eventos","servicio":"eventos","nodo":"local","url":"http://eventos:8002","prioridad":20},{"id":"compras_1","servicio":"compras","nodo":"local","url":"http://compras1:8003","prioridad":40},{"id":"compras_2","servicio":"compras","nodo":"local","url":"http://compras2:8003","prioridad":30}]'
     secrets:
       - eventos_database_url
       - jwt_public
@@ -167,6 +172,8 @@ services:
       EVENTOS_SERVICE_TOKEN_FILE: /run/secrets/eventos_service_token
       FRONTEND_ORIGINS: ${NEXUSTIX_FRONTEND_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       INSTANCE_ID: "1"
+      NEXUSTIX_COORDINATION_ID: compras_1
+      NEXUSTIX_PEERS: '[{"id":"usuarios","servicio":"usuarios","nodo":"local","url":"http://usuarios:8001","prioridad":10},{"id":"eventos","servicio":"eventos","nodo":"local","url":"http://eventos:8002","prioridad":20},{"id":"compras_1","servicio":"compras","nodo":"local","url":"http://compras1:8003","prioridad":40},{"id":"compras_2","servicio":"compras","nodo":"local","url":"http://compras2:8003","prioridad":30}]'
       # Recuperación automática: confirma reservas de compras ya persistidas
       # y repara respuestas idempotentes. No libera stock por sí sola.
       PURCHASE_RECOVERY_INTERVAL_SECONDS: ${NEXUSTIX_RECOVERY_INTERVAL_SECONDS:-30}
@@ -197,6 +204,7 @@ services:
       <<: *compras-env
       DB_APPLICATION_NAME: compras2
       INSTANCE_ID: "2"
+      NEXUSTIX_COORDINATION_ID: compras_2
     secrets: *compras-secrets
     ports:
       - "${NEXUSTIX_BIND_ADDRESS:-127.0.0.1}:8004:8003"

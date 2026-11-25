@@ -19,6 +19,13 @@ PORTS = {
     "eventos_backend": 18002, "compras_backend": 18003,
     "usuarios_db": 5432, "eventos_db": 5433, "compras_db": 5434,
 }
+# Solo se agregan con coordination.mode: patroni, para no alterar la huella de
+# inventarios existentes.
+HA_PORTS = {
+    "etcd_client": 2379, "etcd_peer": 2380,
+    "usuarios_patroni": 8008, "eventos_patroni": 8009, "compras_patroni": 8010,
+}
+COORDINATION_MODES = ("prepared_inactive", "patroni")
 # Límites por contenedor, no una medición de capacidad ni una reserva del host.
 SERVICE_RESOURCES = {
     "frontend": {"cpus": 0.25, "memory_mb": 128},
@@ -28,8 +35,12 @@ SERVICE_RESOURCES = {
     "eventos": {"cpus": 0.5, "memory_mb": 384},
     "compras": {"cpus": 0.5, "memory_mb": 384},
     "postgres": {"cpus": 0.5, "memory_mb": 512},
+    "etcd": {"cpus": 0.25, "memory_mb": 192},
 }
 PRIVATE = tuple(ipaddress.ip_network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+# Red privada virtual (Tailscale/ZeroTier usan el rango CGNAT): une PC de redes distintas.
+OVERLAY = (ipaddress.ip_network("100.64.0.0/10"),)
+NODE_NETWORKS = PRIVATE + OVERLAY
 SLUG = re.compile(r"^[a-z][a-z0-9-]*$")
 RELEASE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
 HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -97,8 +108,19 @@ def replica_id(domain, node_id):
     return f"nx_{domain}_{node_id.replace('-', '_')}"
 
 
-def node_resources(node, databases):
+def coordination_voters(inventory):
+    plan = inventory.get("coordination") or {}
+    return list(plan.get("voters", [])) if plan.get("mode") == "patroni" else []
+
+
+def patroni_enabled(inventory):
+    return (inventory.get("coordination") or {}).get("mode") == "patroni"
+
+
+def node_resources(node, databases, voters=()):
     kinds = list(node["roles"])
+    if node["id"] in voters:
+        kinds.append("etcd")
     if set(DOMAINS).intersection(kinds):
         kinds.append("router")
     kinds.extend("postgres" for db in databases.values() if node["id"] in [db["primary"], *db["standbys"]])
@@ -210,13 +232,17 @@ def stable_access(inventory):
 
 
 def _coordination(data):
-    """Plan declarativo: no instala nada, y el modo activo no existe a propósito."""
+    """prepared_inactive solo documenta; patroni genera etcd + Patroni por base.
+
+    Con patroni, la base principal se elige por mayoría de votantes etcd: con 3
+    votantes se tolera la pérdida de uno sin riesgo de dos principales.
+    """
     plan = data.get("coordination")
     if plan is None:
         return
     _keys(plan, {"mode", "voters"}, {"mode", "voters"}, "coordination")
-    if plan["mode"] != "prepared_inactive":
-        raise InventoryError("coordination.mode solo admite prepared_inactive")
+    if plan["mode"] not in COORDINATION_MODES:
+        raise InventoryError("coordination.mode admite prepared_inactive o patroni")
     voters = plan["voters"]
     if not isinstance(voters, list) or len(voters) not in {3, 5} or len(set(voters)) != len(voters):
         raise InventoryError("coordination.voters requiere 3 o 5 nodos distintos")
@@ -240,8 +266,9 @@ def validate_inventory(data):
         raise InventoryError("profile debe ser local, distribuido o alta_disponibilidad")
     _keys(data["gateway"], {"preferred"}, {"preferred"}, "gateway")
     ports = data.get("ports", {})
-    _keys(ports, PORTS, set(), "ports")
-    data["ports"] = {**PORTS, **ports}
+    patroni = isinstance(data.get("coordination"), dict) and data["coordination"].get("mode") == "patroni"
+    _keys(ports, {**PORTS, **(HA_PORTS if patroni else {})}, set(), "ports")
+    data["ports"] = {**PORTS, **(HA_PORTS if patroni else {}), **ports}
     for key, port in data["ports"].items():
         _integer(port, f"ports.{key}", 1024, 65535)
     if len(set(data["ports"].values())) != len(data["ports"]):
@@ -271,10 +298,10 @@ def validate_inventory(data):
             address = ipaddress.ip_address(node["address"])
         except (ValueError, TypeError) as exc:
             raise InventoryError(f"{identity}.address debe ser IPv4 LAN, sin puerto ni DNS") from exc
-        allowed = address.version == 4 and (any(address in part for part in PRIVATE) or
+        allowed = address.version == 4 and (any(address in part for part in NODE_NETWORKS) or
                   data["profile"] == "local" and str(address) == "127.0.0.1")
         if not allowed or str(address) in addresses:
-            raise InventoryError(f"{identity}.address debe ser RFC1918 única (local permite 127.0.0.1)")
+            raise InventoryError(f"{identity}.address debe ser RFC1918 o de red privada virtual 100.64.0.0/10, única (local permite 127.0.0.1)")
         addresses.add(str(address))
         node["address"] = str(address)
         # NAT de Docker Desktop/WSL puede cambiar el origen observado por PostgreSQL.
@@ -287,7 +314,7 @@ def validate_inventory(data):
                 network = ipaddress.ip_network(cidr, strict=True)
             except (ValueError, TypeError) as exc:
                 raise InventoryError(f"{identity}: CIDR de cliente PostgreSQL inválido") from exc
-            if network.version != 4 or network.prefixlen < 24 or not any(network.subnet_of(part) for part in PRIVATE):
+            if network.version != 4 or network.prefixlen < 24 or not any(network.subnet_of(part) for part in NODE_NETWORKS):
                 raise InventoryError(f"{identity}: los CIDR extra deben ser privados /24 a /32; prefiera /32")
         resources = node["resources"]
         _keys(resources, {"cpus", "memory_mb"}, {"cpus", "memory_mb"}, f"{identity}.resources")
@@ -342,7 +369,7 @@ def validate_inventory(data):
         if any(ipaddress.ip_address(address) in bridge for address in addresses) or any(bridge.overlaps(other) for other in used_bridges):
             raise InventoryError(f"{node['id']}.docker_subnet se solapa con una IP LAN o con otro puente declarado")
         used_bridges.append(bridge)
-        allocation = node_resources(node, databases)
+        allocation = node_resources(node, databases, coordination_voters(data))
         if not allocation["cpus"]:
             raise InventoryError(f"{node['id']} no ejecuta ningún servicio ni base de datos")
         if allocation["cpus"] > node["resources"]["cpus"] or allocation["memory_mb"] > node["resources"]["memory_mb"]:
@@ -370,6 +397,12 @@ def validate_inventory(data):
             if db["replication"] != "sync" or len(db["standbys"]) - worst_loss < db["sync_quorum"]:
                 raise InventoryError(f"{name}: perfil HA requiere replicación sync y conservar al menos un standby extra respecto al quórum")
     _coordination(data)
+    if patroni:
+        voters = data["coordination"]["voters"]
+        for node in nodes:
+            # Un árbitro solo vota: sin roles ni bases, pero debe ser votante.
+            if node["id"] not in voters and not node_resources(node, databases)["cpus"]:
+                raise InventoryError(f"{node['id']} no ejecuta servicios ni vota; agréguelo a coordination.voters o asígnele roles")
     return data
 
 
@@ -382,15 +415,19 @@ def topology_document(inventory):
          **{f"{domain}_url": f"http://{node['address']}:{ports[domain]}" for domain in DOMAINS}}
         for node in document["nodes"] if "gateway" in node["roles"]
     ]
+    voters = coordination_voters(inventory)
     for node in document["nodes"]:
-        node["reserved_resources"] = node_resources(node, document["databases"])
+        node["reserved_resources"] = node_resources(node, document["databases"], voters)
+        node["voter"] = node["id"] in voters
+        node["arbiter"] = node["id"] in voters and not node["roles"] and not any(
+            node["id"] in [db["primary"], *db["standbys"]] for db in document["databases"].values())
     document["ha_status"] = "prepared_manual_recovery" if document["profile"] == "alta_disponibilidad" else "not_claimed"
     document["physical_ha_verified"] = False
-    document["automatic_failover"] = False
+    document["automatic_failover"] = bool(voters)
     plan = document.get("coordination")
     if plan:
         document["coordination_plan"] = plan
-    document["coordination"] = "manual_fencing_required"
+    document["coordination"] = "patroni_etcd_quorum" if voters else "manual_fencing_required"
     document["inventory_sha256"] = inventory_fingerprint(inventory)
     document["release_is_declarative"] = True
     document["stable_access"] = stable_access(inventory)

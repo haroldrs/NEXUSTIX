@@ -25,5 +25,5 @@ def pytest_collection_modifyitems(config, items):
             raise pytest.UsageError(
                 "Suite de infraestructura bloqueada antes de ejecutar fixtures: "
                 "requiere --allow-infrastructure-tests y sus opt-in originales. "
-                "Consulte docs/PRUEBAS_Y_EVIDENCIAS.md."
+                "Consulte docs/PRUEBAS.md."
             )

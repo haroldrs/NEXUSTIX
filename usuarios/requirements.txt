@@ -9,3 +9,4 @@ argon2-cffi==25.1.0
 PyJWT[crypto]==2.15.1
 cryptography==50.0.2
 alembic==1.20.0
+qrcode==8.2

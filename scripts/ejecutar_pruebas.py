@@ -36,9 +36,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LAYERS = {
-    "unit": ["tests/test_authentication.py", "tests/test_backup_procedure.py", "tests/test_locust_safety.py",
+    "unit": ["tests/test_authentication.py", "tests/test_backup_procedure.py",
              "tests/test_recuperacion_automatica.py", "tests/test_eventos_inventario.py", "tests/test_migraciones.py",
-             "tests/test_configuracion.py", "tests/test_operaciones.py", "tests/test_distribuido_config.py", "tests/vm", "tests/lan"],
+             "tests/test_configuracion.py", "tests/test_operaciones.py",
+             "tests/test_coordinacion.py", "tests/test_alta_disponibilidad.py", "tests/test_mfa_bloqueo.py"],
     "postgres": ["tests/postgres"],
     "resiliencia": ["tests/resiliencia"],
     "staging": ["tests/staging"],
@@ -94,7 +95,8 @@ def run_layer(layer: str, out: Path, env: dict[str, str]) -> int:
         log.write("$ " + " ".join(command) + "\n\n")
         log.flush()
         code = subprocess.run(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
-    if layer == "unit" and shutil.which("node"):
+    node_test = ROOT / "tests/staging/frontend_auth_state.test.js"
+    if layer == "unit" and shutil.which("node") and node_test.exists():
         with (out / "unit-node.log").open("w", encoding="utf-8") as log:
             node = subprocess.run(["node", "--test", "tests/staging/frontend_auth_state.test.js"], cwd=ROOT,
                                   stdout=log, stderr=subprocess.STDOUT)
