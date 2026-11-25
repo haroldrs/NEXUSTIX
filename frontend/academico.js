@@ -98,7 +98,7 @@ function academicScenarioRows() {
 function academicEvidenceHtml() {
   if (ACADEMIC_REPORTS === null) return adminEmpty("No se pudieron consultar los experimentos registrados.");
   const rows = academicScenarioRows();
-  return `<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Escenario</th><th scope="col">Nombre</th><th scope="col">Estado</th><th scope="col">Reporte</th></tr></thead><tbody>${rows.map(row => `<tr><td>${adminText(row.id)}</td><td>${adminText(row.name)}</td><td>${adminText(row.status)}</td><td>${row.report ? `<button type="button" class="button button-outline" data-open-evidence="${adminText(row.report.id)}">Ver</button>` : "—"}</td></tr>`).join("")}</tbody></table></div><p class="field-help">Un reporte registrado indica que existe una prueba capturada; su resultado lo evalúa quien la ejecutó. Información faltante y lista de evidencias: docs/MATRIZ_CUMPLIMIENTO_SISOPE2.md y docs/PREPARACION_EXPOSICION.md. Línea base anterior a las últimas mejoras: docs/RESULTADOS_DISTRIBUIDO.md.</p>`;
+  return `<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Escenario</th><th scope="col">Nombre</th><th scope="col">Estado</th><th scope="col">Reporte</th></tr></thead><tbody>${rows.map(row => `<tr><td>${adminText(row.id)}</td><td>${adminText(row.name)}</td><td>${adminText(row.status)}</td><td>${row.report ? `<button type="button" class="button button-outline" data-open-evidence="${adminText(row.report.id)}">Ver</button>` : "—"}</td></tr>`).join("")}</tbody></table></div><p class="field-help">Un reporte registrado indica que existe una prueba capturada; su resultado lo evalúa quien la ejecutó. Resultados medidos: docs/RESULTADOS_ALTA_DISPONIBILIDAD.md.</p>`;
 }
 
 function academicCasesHtml() {

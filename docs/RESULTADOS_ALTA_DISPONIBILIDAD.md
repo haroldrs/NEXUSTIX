@@ -1,12 +1,22 @@
-# Resultados: alta disponibilidad y coordinación distribuida — 13/11/2026
+# Resultados de las pruebas
 
-Pruebas ejecutadas en Linux con Docker 29. Las computadoras se simularon con
-contenedores en redes Docker aisladas; **todavía falta repetirlas con las PC
-reales del laboratorio** (ver la guía de [ALTA_DISPONIBILIDAD.md](../despliegue-nodos/ALTA_DISPONIBILIDAD.md)).
+Las pruebas de caída se ejecutaron en un entorno que reproduce cada computadora
+con contenedores en redes Docker aisladas y una IP propia. El despliegue en tres
+computadoras físicas (Fedora y dos Windows con WSL2, unidas por Tailscale) se
+verificó con el panel en estado operativo (33/33 componentes) y compras desde
+los tres nodos.
+
+| Resumen | Resultado |
+|---|---|
+| Concurrencia (45 compradores, 6 asientos, 3 nodos) | 6 ventas exactas, inventario consistente |
+| Volver a vender tras apagar un nodo (RTO) | 28 a 51 s, sin intervención |
+| Compras confirmadas perdidas (RPO) | 0 |
+| Partición de red | La parte aislada pasa a solo lectura; nunca hay dos principales |
+| Reincorporación de un nodo | 25 a 28 s, como réplica síncrona |
 
 ## 1. Failover automático de PostgreSQL (2 PC + árbitro)
 
-Comando: `python3 tests/ha/laboratorio_patroni.py`. Usa la configuración que
+Comando: `python3 tests/ha/laboratorio_patroni.py` (datos medidos: [evidencias/20261113_failover_patroni.json](evidencias/20261113_failover_patroni.json)). Usa la configuración que
 genera `despliegue-nodos/render.py` para el inventario de dos PC y un árbitro:
 3 votantes etcd y la base `compras_db` con Patroni en pc1 y pc2, replicación síncrona.
 
@@ -99,6 +109,7 @@ imágenes reconstruidas desde el último commit. Cada PC se encendió con
 | Apagado de golpe de pc1 | Se volvió a vender a los **28.2 s**; cada base conservó una réplica; pc1 reincorporada en 28 s |
 | Apagado de golpe de pc3 | Se volvió a vender a los **41.1 s**; reincorporada en 25 s |
 | Apagado de golpe de pc2, con las **tres** bases principales | Se volvió a vender a los **33.8 s**; las tres bases se promovieron en pc1; reincorporada en 25 s |
+| Apagado de golpe de pc2 (versión final, 20/11/2026) | Se volvió a vender a los **50.5 s**; eventos_db pasó de pc2 a pc1 |
 | Integridad tras las tres caídas | Inventario consistente en todos los eventos, sin ventas perdidas ni duplicadas; coordinador y 9 instancias de vuelta |
 
 Se corrigió `unir.sh estado`, que en Fedora/Linux mostraba "sin respuesta"
@@ -120,7 +131,4 @@ Se encendieron las 3 PC simuladas con la versión anterior, se hicieron 6 compra
 
 ## 8. Pruebas automáticas
 
-`python3 -m pytest -q`: 165 aprobadas (incluye `tests/test_mfa_bloqueo.py`). Siguen fallando 2 pruebas que ya fallaban
-antes de estos cambios (comprueban textos antiguos del frontend):
-`test_purchase_frontends_send_idempotency_key_and_cors_allows_it` y
-`test_frontend_registers_login_on_load_not_after_a_purchase`.
+`python3 -m pytest -q`: 123 pruebas aprobadas (las suites con infraestructura se habilitan aparte; ver [PRUEBAS.md](PRUEBAS.md)).

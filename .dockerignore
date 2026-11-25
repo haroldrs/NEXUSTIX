@@ -15,12 +15,6 @@
 !compras_lb/**
 !postgres/
 !postgres/**
-!despliegue-vm/
-!despliegue-vm/postgres/
-!despliegue-vm/postgres/**
-!despliegue-pc/
-!despliegue-pc/postgres/
-!despliegue-pc/postgres/**
 !despliegue-nodos/
 !despliegue-nodos/postgres/
 !despliegue-nodos/postgres/**

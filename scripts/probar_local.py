@@ -19,7 +19,7 @@ def main():
     parser.add_argument("tests", nargs="*", default=["tests/postgres"])
     args = parser.parse_args()
     if not args.permitir_infraestructura:
-        parser.error("Se requiere --permitir-infraestructura; consulte docs/PRUEBAS_Y_EVIDENCIAS.md")
+        parser.error("Se requiere --permitir-infraestructura; consulte docs/PRUEBAS.md")
     root = Path(tempfile.mkdtemp(prefix="nexustix-pg-local-"))
     data = root / "data"
     password = secrets.token_urlsafe(32)

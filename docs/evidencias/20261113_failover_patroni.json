@@ -1,0 +1,48 @@
+{
+  "escenarios": [
+    {
+      "nombre": "Arranque: pc1 principal, pc2 réplica",
+      "aprobado": true,
+      "segundos": 26.9,
+      "miembros": {
+        "nx_compras_pc1": "leader",
+        "nx_compras_pc2": "sync_standby"
+      }
+    },
+    {
+      "nombre": "Caída total de la PC principal",
+      "aprobado": true,
+      "promocion_s": 27.9,
+      "rto_s": 28.2,
+      "filas_confirmadas": 50,
+      "filas_conservadas": 50,
+      "rpo_filas_perdidas": 0
+    },
+    {
+      "nombre": "Reincorporación de pc1 como réplica",
+      "aprobado": true,
+      "segundos": 23.4,
+      "miembros": {
+        "nx_compras_pc1": "sync_standby",
+        "nx_compras_pc2": "leader"
+      }
+    },
+    {
+      "nombre": "Partición: la principal queda aislada",
+      "aprobado": true,
+      "degradada_a_lectura_s": 26.8,
+      "nueva_principal_s": 2.0,
+      "dos_principales": false,
+      "escritura_en_aislada_rechazada": true,
+      "reincorporada_s": 14.9,
+      "total_s": 44.1
+    }
+  ],
+  "configuracion": {
+    "ttl_s": 30,
+    "loop_wait_s": 10,
+    "votantes": 3
+  },
+  "filas_tras_caida_en_pc1": "1",
+  "aprobado": true
+}

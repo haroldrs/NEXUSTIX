@@ -15,5 +15,5 @@ cifrado por este paso; en una sola máquina permanece dentro de su red Docker.
 
 **Límites.** Un servidor único no tolera su propia pérdida. Varios servidores reparten carga y
 réplicas, pero no dan failover PostgreSQL seguro. La alta disponibilidad operativa exige
-coordinación, fencing, redundancia y pruebas: ver `despliegue-nodos/COORDINACION.md`. Estar en
+coordinación y failover: ver `despliegue-nodos/ALTA_DISPONIBILIDAD.md`. Estar en
 la nube no la proporciona por sí mismo.
